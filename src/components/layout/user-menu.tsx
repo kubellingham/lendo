@@ -3,7 +3,7 @@
 import { LogOut } from "lucide-react";
 import { logout } from "@/lib/actions/auth-actions";
 import { Button } from "@/components/ui/button";
-import { ROLE_LABELS } from "@/lib/rbac";
+import { ROLE_LABELS } from "@/lib/role-labels";
 import type { Role } from "@/generated/prisma/enums";
 
 export function UserMenu({

@@ -51,11 +51,7 @@ export async function requireRole(...roles: Role[]): Promise<SessionUser> {
   return user;
 }
 
-export const ROLE_LABELS: Record<Role, string> = {
-  ADMIN: "Administrator",
-  LOAN_OFFICER: "Loan Officer",
-  ACCOUNTANT: "Accountant",
-};
+export { ROLE_LABELS } from "@/lib/role-labels";
 
 /** Roles permitted to mutate customers and issue loans / record payments. */
 export const WRITE_ROLES: Role[] = [Role.ADMIN, Role.LOAN_OFFICER];
