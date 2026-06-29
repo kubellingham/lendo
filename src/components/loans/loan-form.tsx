@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
@@ -104,7 +105,15 @@ export function LoanForm({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Customer</Label>
+            <div className="flex items-baseline justify-between gap-2">
+              <Label>Customer</Label>
+              <Link
+                href="/customers/new?return=/loans/new"
+                className="text-xs text-primary hover:underline"
+              >
+                Can&apos;t find them? + Add new customer
+              </Link>
+            </div>
             <Select
               {...register("customerId")}
               disabled={!!preselectedCustomerId}

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { customerSchema, type CustomerInput } from "@/lib/validation";
 import {
   createCustomer,
@@ -43,12 +43,15 @@ export function CustomerForm({
   defaultValues?: Partial<CustomerInput>;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = searchParams.get("return") || undefined;
   const [formError, setFormError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     watch,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<CustomerInput>({
     resolver: zodResolver(customerSchema),
@@ -57,8 +60,16 @@ export function CustomerForm({
       fullName: "",
       phone: "",
       addressLine: "",
-      city: "",
-      region: "",
+      city: "Dar es Salaam",
+      region: "Dar es Salaam",
+      email: "",
+      businessName: "",
+      businessTin: "",
+      nationalIdNumber: "",
+      altPhone: "",
+      occupation: "",
+      employer: "",
+      notes: "",
       ...defaultValues,
     },
   });
@@ -69,13 +80,41 @@ export function CustomerForm({
     setFormError(null);
     const res: ActionResult = customerId
       ? await updateCustomer(customerId, values)
-      : await createCustomer(values);
+      : await createCustomer(values, returnTo);
     // On success the action redirects; we only reach here on failure.
-    if (!res.ok) setFormError(res.error);
+    if (!res.ok) {
+      setFormError(res.error);
+      if (res.fieldErrors) {
+        for (const [name, msgs] of Object.entries(res.fieldErrors)) {
+          if (msgs && msgs.length) {
+            setError(name as keyof CustomerInput, { type: "server", message: msgs[0] });
+          }
+        }
+      }
+    }
   }
+
+  const errorList = Object.entries(errors)
+    .map(([k, v]) => [k, (v as { message?: string })?.message] as const)
+    .filter(([, msg]) => !!msg);
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {errorList.length > 0 ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <p className="font-medium text-destructive mb-1">
+            Please fix these fields:
+          </p>
+          <ul className="list-disc list-inside text-destructive">
+            {errorList.map(([k, msg]) => (
+              <li key={k}>
+                <span className="font-medium">{k}:</span> {msg}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       <Card>
         <CardContent className="grid gap-4 pt-6 sm:grid-cols-2">
           <Field label="Customer type" error={errors.type?.message}>
@@ -111,7 +150,7 @@ export function CustomerForm({
             <Input {...register("altPhone")} placeholder="+255…" />
           </Field>
           <Field label="Email" error={errors.email?.message}>
-            <Input {...register("email")} type="email" />
+            <Input {...register("email")} placeholder="optional" />
           </Field>
           <Field label="Occupation" error={errors.occupation?.message}>
             <Input {...register("occupation")} />

@@ -27,7 +27,10 @@ function handleAuthError(err: unknown): ActionResult {
   throw err;
 }
 
-export async function createCustomer(input: CustomerInput): Promise<ActionResult> {
+export async function createCustomer(
+  input: CustomerInput,
+  returnTo?: string,
+): Promise<ActionResult> {
   let user;
   try {
     user = await requireRole(...WRITE_ROLES);
@@ -74,6 +77,13 @@ export async function createCustomer(input: CustomerInput): Promise<ActionResult
   });
 
   revalidatePath("/customers");
+
+  // If the form was launched from another page (e.g. /loans/new), bounce back
+  // to that page with the new customer pre-selected. Only allow relative paths.
+  if (returnTo && returnTo.startsWith("/")) {
+    const sep = returnTo.includes("?") ? "&" : "?";
+    redirect(`${returnTo}${sep}customerId=${customer.id}`);
+  }
   redirect(`/customers/${customer.id}`);
 }
 
