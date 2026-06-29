@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireRole, ForbiddenError, WRITE_ROLES } from "@/lib/rbac";
@@ -12,7 +11,7 @@ import { parseIsoDate } from "@/lib/dates";
 import { Role } from "@/generated/prisma/enums";
 
 export type LoanActionResult =
-  | { ok: true; id: string }
+  | { ok: true; id: string; redirectTo?: string }
   | {
       ok: false;
       error: string;
@@ -129,5 +128,5 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
 
   revalidatePath("/loans");
   revalidatePath(`/customers/${customer.id}`);
-  redirect(`/loans/${loan.id}`);
+  return { ok: true, id: loan.id, redirectTo: `/loans/${loan.id}` };
 }

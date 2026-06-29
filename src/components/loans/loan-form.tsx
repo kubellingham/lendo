@@ -87,13 +87,24 @@ export function LoanForm({
 
   async function onSubmit(values: LoanInput) {
     setFormError(null);
-    const res: LoanActionResult = await issueLoan(values);
-    if (!res.ok) {
+    try {
+      const res: LoanActionResult = await issueLoan(values);
+      if (res.ok) {
+        if (res.redirectTo) router.push(res.redirectTo);
+        return;
+      }
       setFormError(res.error);
       if (res.requiresOverride) {
         setNeedsOverride(true);
         setCanOverride(!!res.canOverride);
       }
+    } catch (err) {
+      console.error("[loan-form] submit error", err);
+      setFormError(
+        err instanceof Error
+          ? `Save failed: ${err.message}`
+          : "Save failed (unknown error).",
+      );
     }
   }
 

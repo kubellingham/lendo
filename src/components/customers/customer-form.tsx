@@ -78,11 +78,14 @@ export function CustomerForm({
 
   async function onSubmit(values: CustomerInput) {
     setFormError(null);
-    const res: ActionResult = customerId
-      ? await updateCustomer(customerId, values)
-      : await createCustomer(values, returnTo);
-    // On success the action redirects; we only reach here on failure.
-    if (!res.ok) {
+    try {
+      const res: ActionResult = customerId
+        ? await updateCustomer(customerId, values)
+        : await createCustomer(values, returnTo);
+      if (res.ok) {
+        if (res.redirectTo) router.push(res.redirectTo);
+        return;
+      }
       setFormError(res.error);
       if (res.fieldErrors) {
         for (const [name, msgs] of Object.entries(res.fieldErrors)) {
@@ -91,6 +94,13 @@ export function CustomerForm({
           }
         }
       }
+    } catch (err) {
+      console.error("[customer-form] submit error", err);
+      setFormError(
+        err instanceof Error
+          ? `Save failed: ${err.message}`
+          : "Save failed (unknown error). Check your connection and try again.",
+      );
     }
   }
 

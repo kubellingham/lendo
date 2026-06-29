@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireRole, ForbiddenError, WRITE_ROLES } from "@/lib/rbac";
@@ -14,7 +13,7 @@ import {
 import { FlagSeverity } from "@/generated/prisma/enums";
 
 export type ActionResult =
-  | { ok: true; id?: string }
+  | { ok: true; id?: string; redirectTo?: string }
   | { ok: false; error: string; fieldErrors?: Record<string, string[]> };
 
 function emptyToNull(v?: string | null): string | null {
@@ -48,25 +47,37 @@ export async function createCustomer(
   }
   const d = parsed.data;
 
-  const customer = await db.customer.create({
-    data: {
-      type: d.type,
-      fullName: d.fullName.trim(),
-      businessName: emptyToNull(d.businessName),
-      nationalIdNumber: emptyToNull(d.nationalIdNumber),
-      phone: d.phone.trim(),
-      altPhone: emptyToNull(d.altPhone),
-      email: emptyToNull(d.email),
-      addressLine: d.addressLine.trim(),
-      city: d.city.trim(),
-      region: d.region.trim(),
-      occupation: emptyToNull(d.occupation),
-      employer: emptyToNull(d.employer),
-      businessTin: emptyToNull(d.businessTin),
-      notes: emptyToNull(d.notes),
-      createdById: user.id,
-    },
-  });
+  let customer;
+  try {
+    customer = await db.customer.create({
+      data: {
+        type: d.type,
+        fullName: d.fullName.trim(),
+        businessName: emptyToNull(d.businessName),
+        nationalIdNumber: emptyToNull(d.nationalIdNumber),
+        phone: d.phone.trim(),
+        altPhone: emptyToNull(d.altPhone),
+        email: emptyToNull(d.email),
+        addressLine: d.addressLine.trim(),
+        city: d.city.trim(),
+        region: d.region.trim(),
+        occupation: emptyToNull(d.occupation),
+        employer: emptyToNull(d.employer),
+        businessTin: emptyToNull(d.businessTin),
+        notes: emptyToNull(d.notes),
+        createdById: user.id,
+      },
+    });
+  } catch (err) {
+    console.error("[createCustomer] db error", err);
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? `Could not save customer: ${err.message}`
+          : "Could not save customer (unknown database error).",
+    };
+  }
 
   await audit({
     actorId: user.id,
@@ -78,13 +89,15 @@ export async function createCustomer(
 
   revalidatePath("/customers");
 
-  // If the form was launched from another page (e.g. /loans/new), bounce back
-  // to that page with the new customer pre-selected. Only allow relative paths.
-  if (returnTo && returnTo.startsWith("/")) {
-    const sep = returnTo.includes("?") ? "&" : "?";
-    redirect(`${returnTo}${sep}customerId=${customer.id}`);
-  }
-  redirect(`/customers/${customer.id}`);
+  // Return the redirect target so the client can navigate. We deliberately
+  // don't call redirect() here because the thrown NEXT_REDIRECT is swallowed
+  // by react-hook-form's handleSubmit wrapper.
+  const redirectTo =
+    returnTo && returnTo.startsWith("/")
+      ? `${returnTo}${returnTo.includes("?") ? "&" : "?"}customerId=${customer.id}`
+      : `/customers/${customer.id}`;
+
+  return { ok: true, id: customer.id, redirectTo };
 }
 
 export async function updateCustomer(
@@ -111,25 +124,37 @@ export async function updateCustomer(
   const before = await db.customer.findUnique({ where: { id } });
   if (!before) return { ok: false, error: "Customer not found." };
 
-  const customer = await db.customer.update({
-    where: { id },
-    data: {
-      type: d.type,
-      fullName: d.fullName.trim(),
-      businessName: emptyToNull(d.businessName),
-      nationalIdNumber: emptyToNull(d.nationalIdNumber),
-      phone: d.phone.trim(),
-      altPhone: emptyToNull(d.altPhone),
-      email: emptyToNull(d.email),
-      addressLine: d.addressLine.trim(),
-      city: d.city.trim(),
-      region: d.region.trim(),
-      occupation: emptyToNull(d.occupation),
-      employer: emptyToNull(d.employer),
-      businessTin: emptyToNull(d.businessTin),
-      notes: emptyToNull(d.notes),
-    },
-  });
+  let customer;
+  try {
+    customer = await db.customer.update({
+      where: { id },
+      data: {
+        type: d.type,
+        fullName: d.fullName.trim(),
+        businessName: emptyToNull(d.businessName),
+        nationalIdNumber: emptyToNull(d.nationalIdNumber),
+        phone: d.phone.trim(),
+        altPhone: emptyToNull(d.altPhone),
+        email: emptyToNull(d.email),
+        addressLine: d.addressLine.trim(),
+        city: d.city.trim(),
+        region: d.region.trim(),
+        occupation: emptyToNull(d.occupation),
+        employer: emptyToNull(d.employer),
+        businessTin: emptyToNull(d.businessTin),
+        notes: emptyToNull(d.notes),
+      },
+    });
+  } catch (err) {
+    console.error("[updateCustomer] db error", err);
+    return {
+      ok: false,
+      error:
+        err instanceof Error
+          ? `Could not update customer: ${err.message}`
+          : "Could not update customer (unknown database error).",
+    };
+  }
 
   await audit({
     actorId: user.id,
@@ -142,7 +167,7 @@ export async function updateCustomer(
 
   revalidatePath(`/customers/${id}`);
   revalidatePath("/customers");
-  redirect(`/customers/${id}`);
+  return { ok: true, id, redirectTo: `/customers/${id}` };
 }
 
 /**
