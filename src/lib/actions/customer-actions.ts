@@ -30,26 +30,25 @@ export async function createCustomer(
   input: CustomerInput,
   returnTo?: string,
 ): Promise<ActionResult> {
-  let user;
   try {
-    user = await requireRole(...WRITE_ROLES);
-  } catch (err) {
-    return handleAuthError(err);
-  }
+    let user;
+    try {
+      user = await requireRole(...WRITE_ROLES);
+    } catch (err) {
+      return handleAuthError(err);
+    }
 
-  const parsed = customerSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: "Please fix the highlighted fields.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
-    };
-  }
-  const d = parsed.data;
+    const parsed = customerSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: "Please fix the highlighted fields.",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      };
+    }
+    const d = parsed.data;
 
-  let customer;
-  try {
-    customer = await db.customer.create({
+    const customer = await db.customer.create({
       data: {
         type: d.type,
         fullName: d.fullName.trim(),
@@ -68,65 +67,66 @@ export async function createCustomer(
         createdById: user.id,
       },
     });
+
+    // Audit is best-effort; the function swallows its own errors.
+    await audit({
+      actorId: user.id,
+      action: "customer.create",
+      entity: "Customer",
+      entityId: customer.id,
+      after: {
+        fullName: customer.fullName,
+        phone: customer.phone,
+        type: customer.type,
+      },
+    });
+
+    try {
+      revalidatePath("/customers");
+    } catch (err) {
+      console.error("[createCustomer] revalidatePath threw (non-fatal)", err);
+    }
+
+    const redirectTo =
+      returnTo && returnTo.startsWith("/")
+        ? `${returnTo}${returnTo.includes("?") ? "&" : "?"}customerId=${customer.id}`
+        : `/customers/${customer.id}`;
+
+    return { ok: true, id: customer.id, redirectTo };
   } catch (err) {
-    console.error("[createCustomer] db error", err);
-    return {
-      ok: false,
-      error:
-        err instanceof Error
-          ? `Could not save customer: ${err.message}`
-          : "Could not save customer (unknown database error).",
-    };
+    const detail = err instanceof Error ? err.message : String(err);
+    const name = err instanceof Error ? err.name : "Error";
+    console.error("[createCustomer] unhandled error", err);
+    return { ok: false, error: `Could not save customer (${name}): ${detail}` };
   }
-
-  await audit({
-    actorId: user.id,
-    action: "customer.create",
-    entity: "Customer",
-    entityId: customer.id,
-    after: { fullName: customer.fullName, phone: customer.phone, type: customer.type },
-  });
-
-  revalidatePath("/customers");
-
-  // Return the redirect target so the client can navigate. We deliberately
-  // don't call redirect() here because the thrown NEXT_REDIRECT is swallowed
-  // by react-hook-form's handleSubmit wrapper.
-  const redirectTo =
-    returnTo && returnTo.startsWith("/")
-      ? `${returnTo}${returnTo.includes("?") ? "&" : "?"}customerId=${customer.id}`
-      : `/customers/${customer.id}`;
-
-  return { ok: true, id: customer.id, redirectTo };
 }
 
 export async function updateCustomer(
   id: string,
   input: CustomerInput,
 ): Promise<ActionResult> {
-  let user;
   try {
-    user = await requireRole(...WRITE_ROLES);
-  } catch (err) {
-    return handleAuthError(err);
-  }
+    let user;
+    try {
+      user = await requireRole(...WRITE_ROLES);
+    } catch (err) {
+      return handleAuthError(err);
+    }
 
-  const parsed = customerSchema.safeParse(input);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: "Please fix the highlighted fields.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
-    };
-  }
-  const d = parsed.data;
+    const parsed = customerSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: "Please fix the highlighted fields.",
+        fieldErrors: parsed.error.flatten().fieldErrors,
+      };
+    }
+    const d = parsed.data;
 
-  const before = await db.customer.findUnique({ where: { id } });
-  if (!before) return { ok: false, error: "Customer not found." };
+    const before = await db.customer.findUnique({ where: { id } });
+    if (!before) return { ok: false, error: "Customer not found." };
 
-  let customer;
-  try {
-    customer = await db.customer.update({
+    const customer = await db.customer.update({
       where: { id },
       data: {
         type: d.type,
@@ -145,29 +145,29 @@ export async function updateCustomer(
         notes: emptyToNull(d.notes),
       },
     });
+
+    await audit({
+      actorId: user.id,
+      action: "customer.update",
+      entity: "Customer",
+      entityId: id,
+      before: { fullName: before.fullName, phone: before.phone },
+      after: { fullName: customer.fullName, phone: customer.phone },
+    });
+
+    try {
+      revalidatePath(`/customers/${id}`);
+      revalidatePath("/customers");
+    } catch (err) {
+      console.error("[updateCustomer] revalidatePath threw (non-fatal)", err);
+    }
+    return { ok: true, id, redirectTo: `/customers/${id}` };
   } catch (err) {
-    console.error("[updateCustomer] db error", err);
-    return {
-      ok: false,
-      error:
-        err instanceof Error
-          ? `Could not update customer: ${err.message}`
-          : "Could not update customer (unknown database error).",
-    };
+    const detail = err instanceof Error ? err.message : String(err);
+    const name = err instanceof Error ? err.name : "Error";
+    console.error("[updateCustomer] unhandled error", err);
+    return { ok: false, error: `Could not update customer (${name}): ${detail}` };
   }
-
-  await audit({
-    actorId: user.id,
-    action: "customer.update",
-    entity: "Customer",
-    entityId: id,
-    before: { fullName: before.fullName, phone: before.phone },
-    after: { fullName: customer.fullName, phone: customer.phone },
-  });
-
-  revalidatePath(`/customers/${id}`);
-  revalidatePath("/customers");
-  return { ok: true, id, redirectTo: `/customers/${id}` };
 }
 
 /**
