@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { requireUser } from "@/lib/rbac";
-import { formatDate, formatDateTime } from "@/lib/dates";
-import { formatTZS } from "@/lib/money";
+import { requireUser, WRITE_ROLES } from "@/lib/rbac";
+import { formatDate, formatDateTime, toIsoDate } from "@/lib/dates";
+import { formatTZS, toDbString } from "@/lib/money";
 import { computeLoanState } from "@/lib/loan-calc";
+import {
+  RecordPaymentForm,
+  type InstallmentOption,
+} from "@/components/payments/record-payment-form";
 import { PageHeader } from "@/components/layout/page-header";
 import {
   Card,
@@ -38,7 +42,8 @@ export default async function LoanDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  const canWrite = WRITE_ROLES.includes(user.role);
   const { id } = await params;
 
   const loan = await db.loan.findUnique({
@@ -96,6 +101,34 @@ export default async function LoanDetailPage({
           value={state.isSettled ? "—" : formatTZS(state.settlementAmountNow)}
         />
       </div>
+
+      {canWrite && !state.isSettled && loan.status !== "WRITTEN_OFF" ? (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Record payment</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RecordPaymentForm
+              loanId={loan.id}
+              defaultDate={toIsoDate(new Date())}
+              defaultInstallmentId={
+                (
+                  loan.installments.find(
+                    (i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID",
+                  ) ?? loan.installments[loan.installments.length - 1]
+                ).id
+              }
+              interestOnlyAmount={toDbString(state.interestOnlyNow)}
+              settlementAmount={toDbString(state.settlementAmountNow)}
+              installments={loan.installments.map<InstallmentOption>((i) => ({
+                id: i.id,
+                cycleNumber: i.cycleNumber,
+                label: `Cycle ${i.cycleNumber} — due ${formatDate(i.dueDate)}`,
+              }))}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

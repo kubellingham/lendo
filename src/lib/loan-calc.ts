@@ -46,6 +46,65 @@ export interface LoanState {
   perInstallmentPaid: Record<string, Decimal>;
 }
 
+export interface DerivedStatuses {
+  installmentStatuses: Record<string, InstallmentStatus>;
+  loanStatus: LoanStatus;
+  settled: boolean;
+}
+
+/**
+ * Given the loan state *after* a projected payment, derive the new installment
+ * statuses and overall loan status. Pure (no I/O) so it is unit-testable and
+ * shared by the record-payment action and the nightly recompute job.
+ */
+export function deriveStatuses(
+  loan: LoanStateInput,
+  state: LoanState,
+  targetCycle: number,
+  loanDueAt: Date,
+  now: Date,
+): DerivedStatuses {
+  const settled = state.principalOutstanding.lte(0);
+  const I = state.perCycleInterest;
+  const installmentStatuses: Record<string, InstallmentStatus> = {};
+
+  for (const inst of loan.installments) {
+    const paid = state.perInstallmentPaid[inst.id] ?? new Decimal(0);
+    let status: InstallmentStatus;
+    if (settled) {
+      status =
+        inst.cycleNumber >= targetCycle
+          ? "SETTLED"
+          : paid.gte(I)
+            ? "INTEREST_PAID"
+            : "SETTLED";
+    } else if (paid.gte(I)) {
+      status = "INTEREST_PAID";
+    } else if (now.getTime() > inst.dueDate.getTime()) {
+      status = "OVERDUE";
+    } else {
+      status = "PENDING";
+    }
+    installmentStatuses[inst.id] = status;
+  }
+
+  let loanStatus: LoanStatus;
+  if (settled) {
+    loanStatus = "SETTLED";
+  } else if (now.getTime() > loanDueAt.getTime()) {
+    loanStatus = "DEFAULTED";
+  } else {
+    // Overdue if any not-yet-rolled installment is past its due date.
+    const anyOverdue = loan.installments.some(
+      (inst) =>
+        installmentStatuses[inst.id] === "OVERDUE",
+    );
+    loanStatus = anyOverdue ? "OVERDUE" : "ACTIVE";
+  }
+
+  return { installmentStatuses, loanStatus, settled };
+}
+
 export function computeLoanState(loan: LoanStateInput): LoanState {
   const principal = round2(loan.principal);
   const perCycleInterest =
