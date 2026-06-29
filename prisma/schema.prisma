@@ -1,0 +1,234 @@
+// Lendo — lending management schema
+// Money fields use Prisma Decimal; never use JS number for currency.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+  runtime  = "nodejs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  LOAN_OFFICER
+  ACCOUNTANT
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum FlagSeverity {
+  LOW
+  MED
+  HIGH
+  BLACKLIST
+}
+
+enum LoanStatus {
+  ACTIVE
+  SETTLED
+  OVERDUE
+  DEFAULTED
+  WRITTEN_OFF
+}
+
+enum InstallmentStatus {
+  PENDING
+  INTEREST_PAID
+  SETTLED
+  OVERDUE
+}
+
+enum PaymentMethod {
+  CASH
+  MPESA
+  BANK
+  OTHER
+}
+
+enum NotificationChannel {
+  WHATSAPP
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(LOAN_OFFICER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  customersCreated Customer[]     @relation("CustomerCreatedBy")
+  loansIssued      Loan[]         @relation("LoanIssuedBy")
+  paymentsRecorded Payment[]      @relation("PaymentRecordedBy")
+  flagsCreated     CustomerFlag[] @relation("FlagCreatedBy")
+  auditLogs        AuditLog[]     @relation("AuditActor")
+}
+
+model Customer {
+  id               String       @id @default(cuid())
+  type             CustomerType @default(INDIVIDUAL)
+  fullName         String
+  businessName     String?
+  nationalIdNumber String?
+  phone            String // E.164
+  altPhone         String?
+  email            String?
+  addressLine      String
+  city             String
+  region           String
+  occupation       String?
+  employer         String?
+  businessTin      String?
+  notes            String?
+  isFlagged        Boolean      @default(false)
+  flagReason       String?
+  createdById      String
+  createdBy        User         @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  loans         Loan[]
+  flags         CustomerFlag[]
+  notifications Notification[]
+
+  @@index([fullName])
+  @@index([phone])
+  @@index([isFlagged])
+}
+
+model Loan {
+  id              String     @id @default(cuid())
+  customerId      String
+  customer        Customer   @relation(fields: [customerId], references: [id])
+  principal       Decimal    @db.Decimal(14, 2)
+  interestRatePct Int        @default(15)
+  cyclesAllowed   Int        @default(3)
+  cycleDays       Int        @default(30)
+  disbursedAt     DateTime   @db.Date
+  dueAt           DateTime   @db.Date
+  status          LoanStatus @default(ACTIVE)
+  issuedById      String
+  issuedBy        User       @relation("LoanIssuedBy", fields: [issuedById], references: [id])
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  installments  Installment[]
+  payments      Payment[]
+  notifications Notification[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([dueAt])
+}
+
+model Installment {
+  id                           String            @id @default(cuid())
+  loanId                       String
+  loan                         Loan              @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  cycleNumber                  Int // 1 | 2 | 3
+  dueDate                      DateTime          @db.Date
+  expectedInterest             Decimal           @db.Decimal(14, 2)
+  expectedPrincipalAtThisCycle Decimal           @db.Decimal(14, 2)
+  status                       InstallmentStatus @default(PENDING)
+
+  payments Payment[]
+
+  @@unique([loanId, cycleNumber])
+  @@index([dueDate])
+  @@index([status])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  loanId        String
+  loan          Loan          @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  installmentId String?
+  installment   Installment?  @relation(fields: [installmentId], references: [id])
+  amount        Decimal       @db.Decimal(14, 2)
+  paidAt        DateTime
+  method        PaymentMethod @default(CASH)
+  reference     String?
+  recordedById  String
+  recordedBy    User          @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
+  note          String?
+  createdAt     DateTime      @default(now())
+
+  @@index([loanId])
+  @@index([paidAt])
+}
+
+model CustomerFlag {
+  id          String       @id @default(cuid())
+  customerId  String
+  customer    Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  reason      String
+  severity    FlagSeverity @default(LOW)
+  createdById String
+  createdBy   User         @relation("FlagCreatedBy", fields: [createdById], references: [id])
+  createdAt   DateTime     @default(now())
+
+  @@index([customerId])
+}
+
+model Notification {
+  id                String              @id @default(cuid())
+  customerId        String
+  customer          Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  loanId            String?
+  loan              Loan?               @relation(fields: [loanId], references: [id])
+  channel           NotificationChannel @default(WHATSAPP)
+  template          String
+  payloadJson       Json
+  status            NotificationStatus  @default(QUEUED)
+  providerMessageId String?
+  error             String?
+  scheduledFor      DateTime
+  sentAt            DateTime?
+  createdAt         DateTime            @default(now())
+
+  @@index([status])
+  @@index([scheduledFor])
+}
+
+model NotificationTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique // e.g. due_in_3_days, due_today, overdue_1d
+  body      String // supports {{customerName}}, {{amount}}, {{dueDate}} placeholders
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AuditActor", fields: [actorId], references: [id])
+  action     String
+  entity     String
+  entityId   String
+  beforeJson Json?
+  afterJson  Json?
+  at         DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([at])
+}
