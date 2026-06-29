@@ -59,7 +59,7 @@ export const loanSchema = z.object({
     .refine((v) => Number(v) > 0, "Amount must be greater than zero"),
   disbursedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a disbursal date"),
   // Admin-only override to issue to a blacklisted customer.
-  overrideBlacklist: z.boolean().optional().default(false),
+  overrideBlacklist: z.boolean().optional(),
   overrideReason: optionalText,
 });
 export type LoanInput = z.infer<typeof loanSchema>;
@@ -95,6 +95,6 @@ export const userSchema = z.object({
     .min(8, "Password must be at least 8 characters")
     .optional()
     .or(z.literal("")),
-  isActive: z.boolean().optional().default(true),
+  isActive: z.boolean().optional(),
 });
 export type UserInput = z.infer<typeof userSchema>;
