@@ -10,7 +10,6 @@ import {
   type CustomerInput,
   type FlagInput,
 } from "@/lib/validation";
-import { FlagSeverity } from "@/generated/prisma/enums";
 
 export type ActionResult =
   | { ok: true; id?: string; redirectTo?: string }
@@ -237,5 +236,3 @@ export async function clearCustomerFlag(customerId: string): Promise<ActionResul
   revalidatePath("/customers");
   return { ok: true, id: customerId };
 }
-
-export const FLAG_SEVERITIES = Object.values(FlagSeverity);
