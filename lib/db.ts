@@ -6,8 +6,14 @@ declare global {
   var __prisma: PrismaClient | undefined;
 }
 
+function sanitizeUrl(url: string | undefined): string | undefined {
+  if (!url) return url;
+
+  return url.replace(/([?&])channel_binding=[^&]*/g, '$1').replace(/[?&]$/, '');
+}
+
 function makeClient() {
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+  const adapter = new PrismaPg({ connectionString: sanitizeUrl(process.env.DATABASE_URL) });
   return new PrismaClient({ adapter });
 }
 

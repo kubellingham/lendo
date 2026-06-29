@@ -3,7 +3,12 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import 'dotenv/config';
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+function sanitize(url: string | undefined) {
+  if (!url) return url;
+  return url.replace(/([?&])channel_binding=[^&]*/g, '$1').replace(/[?&]$/, '');
+}
+
+const adapter = new PrismaPg({ connectionString: sanitize(process.env.DATABASE_URL) });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
