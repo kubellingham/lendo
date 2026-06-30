@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/rbac";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { UserMenu } from "@/components/layout/user-menu";
+import { MobileNav } from "@/components/layout/mobile-nav";
 
 export default async function AppLayout({
   children,
@@ -29,13 +30,19 @@ export default async function AppLayout({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-14 items-center justify-between border-b bg-card px-6">
-          <div className="md:hidden text-lg font-semibold">Lendo</div>
-          <div className="ml-auto">
-            <UserMenu name={user.name} email={user.email} role={user.role} />
+        <header className="flex h-14 items-center justify-between gap-3 border-b bg-card px-4 sm:px-6">
+          <div className="flex items-center gap-2">
+            <MobileNav role={user.role} />
+            <Link
+              href="/dashboard"
+              className="text-lg font-semibold md:hidden"
+            >
+              Lendo
+            </Link>
           </div>
+          <UserMenu name={user.name} email={user.email} role={user.role} />
         </header>
-        <main className="flex-1 overflow-auto p-6">{children}</main>
+        <main className="flex-1 overflow-auto p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

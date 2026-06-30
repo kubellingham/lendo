@@ -145,6 +145,7 @@ export default async function LoanDetailPage({
             <CardTitle>Repayment schedule</CardTitle>
           </CardHeader>
           <CardContent>
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -173,6 +174,7 @@ export default async function LoanDetailPage({
                 ))}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
 
@@ -186,6 +188,7 @@ export default async function LoanDetailPage({
                 No payments recorded yet.
               </p>
             ) : (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -242,6 +245,7 @@ export default async function LoanDetailPage({
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
           </CardContent>
         </Card>
