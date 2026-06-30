@@ -24,7 +24,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { LoanStatusBadge, InstallmentStatusBadge } from "@/components/status";
+import {
+  LoanStatusBadge,
+  InstallmentStatusBadge,
+  PunctualityBadge,
+} from "@/components/status";
+import { PaymentActions } from "@/components/payments/payment-actions";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -54,7 +59,10 @@ export default async function LoanDetailPage({
       installments: { orderBy: { cycleNumber: "asc" } },
       payments: {
         orderBy: { paidAt: "desc" },
-        include: { recordedBy: { select: { name: true } } },
+        include: {
+          recordedBy: { select: { name: true } },
+          installment: { select: { dueDate: true, cycleNumber: true } },
+        },
       },
     },
   });
@@ -124,6 +132,7 @@ export default async function LoanDetailPage({
                 id: i.id,
                 cycleNumber: i.cycleNumber,
                 label: `Cycle ${i.cycleNumber} — due ${formatDate(i.dueDate)}`,
+                status: i.status,
               }))}
             />
           </CardContent>
@@ -183,16 +192,52 @@ export default async function LoanDetailPage({
                     <TableHead>Date</TableHead>
                     <TableHead>Amount</TableHead>
                     <TableHead>Method</TableHead>
+                    <TableHead>Cycle</TableHead>
+                    <TableHead>Punctuality</TableHead>
                     <TableHead>By</TableHead>
+                    {canWrite ? <TableHead className="w-0" /> : null}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loan.payments.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell>{formatDateTime(p.paidAt)}</TableCell>
+                      <TableCell>{formatDate(p.paidAt)}</TableCell>
                       <TableCell>{formatTZS(p.amount.toString())}</TableCell>
                       <TableCell>{p.method}</TableCell>
-                      <TableCell>{p.recordedBy.name}</TableCell>
+                      <TableCell>
+                        {p.installment ? `#${p.installment.cycleNumber}` : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <PunctualityBadge
+                          paidAt={p.paidAt}
+                          dueDate={p.installment?.dueDate ?? null}
+                        />
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {p.recordedBy.name}
+                      </TableCell>
+                      {canWrite ? (
+                        <TableCell>
+                          <PaymentActions
+                            payment={{
+                              id: p.id,
+                              loanId: loan.id,
+                              amount: p.amount.toString(),
+                              paidAt: toIsoDate(p.paidAt),
+                              method: p.method,
+                              reference: p.reference,
+                              note: p.note,
+                              installmentId: p.installmentId,
+                            }}
+                            installments={loan.installments.map((i) => ({
+                              id: i.id,
+                              cycleNumber: i.cycleNumber,
+                              label: `Cycle ${i.cycleNumber} — due ${formatDate(i.dueDate)}`,
+                            }))}
+                            isAdmin={user.role === "ADMIN"}
+                          />
+                        </TableCell>
+                      ) : null}
                     </TableRow>
                   ))}
                 </TableBody>

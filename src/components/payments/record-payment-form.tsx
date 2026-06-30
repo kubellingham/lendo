@@ -10,12 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { PaymentMethod } from "@/generated/prisma/enums";
+import { PaymentMethod, type InstallmentStatus } from "@/generated/prisma/enums";
 
 export type InstallmentOption = {
   id: string;
   cycleNumber: number;
   label: string;
+  status: InstallmentStatus;
 };
 
 export function RecordPaymentForm({
@@ -115,11 +116,31 @@ export function RecordPaymentForm({
         <div className="space-y-1.5">
           <Label>Apply to cycle</Label>
           <Select {...register("installmentId")}>
-            {installments.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.label}
-              </option>
-            ))}
+            {(() => {
+              // The earliest cycle whose previous cycle isn't yet rolled is the
+              // only one selectable. Cycle 1 is always selectable until rolled.
+              const sorted = [...installments].sort(
+                (a, b) => a.cycleNumber - b.cycleNumber,
+              );
+              const firstUnrolled = sorted.find(
+                (i) => i.status !== "INTEREST_PAID" && i.status !== "SETTLED",
+              );
+              const unlockedCycle = firstUnrolled?.cycleNumber ?? null;
+              return sorted.map((i) => {
+                const locked =
+                  unlockedCycle !== null && i.cycleNumber > unlockedCycle;
+                return (
+                  <option
+                    key={i.id}
+                    value={i.id}
+                    disabled={locked}
+                  >
+                    {i.label}
+                    {locked ? "  (settle previous cycle first)" : ""}
+                  </option>
+                );
+              });
+            })()}
           </Select>
         </div>
         <div className="space-y-1.5">
