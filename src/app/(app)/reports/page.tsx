@@ -55,8 +55,12 @@ export default async function ReportsPage({
         issuedBy: { select: { name: true } },
         installments: { orderBy: { cycleNumber: "asc" } },
         payments: {
-          select: { amount: true, installmentId: true, paidAt: true },
-          include: { installment: { select: { dueDate: true } } },
+          select: {
+            amount: true,
+            installmentId: true,
+            paidAt: true,
+            installment: { select: { dueDate: true } },
+          },
         },
       },
       orderBy: { createdAt: "desc" },
