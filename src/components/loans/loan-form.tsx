@@ -257,6 +257,10 @@ export function LoanForm({
               </dl>
               <p className="mt-2 text-xs text-muted-foreground">
                 * settlement is mandatory at the final cycle (day 90).
+                <br />
+                Interest is 15% of the outstanding principal each cycle. If the
+                borrower pays down principal early, the interest for the
+                remaining cycles drops accordingly.
               </p>
             </>
           ) : (

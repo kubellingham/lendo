@@ -71,6 +71,7 @@ export default async function LoanDetailPage({
   const state = computeLoanState({
     principal: loan.principal,
     status: loan.status,
+    interestRatePct: loan.interestRatePct,
     installments: loan.installments,
     payments: loan.payments.map((p) => ({
       amount: p.amount,
@@ -151,6 +152,7 @@ export default async function LoanDetailPage({
                 <TableRow>
                   <TableHead>Cycle</TableHead>
                   <TableHead>Due</TableHead>
+                  <TableHead>Opening principal</TableHead>
                   <TableHead>Interest</TableHead>
                   <TableHead>Paid</TableHead>
                   <TableHead>Status</TableHead>
@@ -162,7 +164,15 @@ export default async function LoanDetailPage({
                     <TableCell>{inst.cycleNumber}</TableCell>
                     <TableCell>{formatDate(inst.dueDate)}</TableCell>
                     <TableCell>
-                      {formatTZS(inst.expectedInterest.toString())}
+                      {formatTZS(
+                        state.perInstallmentOpeningPrincipal[inst.id] ?? "0",
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {formatTZS(
+                        state.perInstallmentInterestOwed[inst.id] ??
+                          inst.expectedInterest.toString(),
+                      )}
                     </TableCell>
                     <TableCell>
                       {formatTZS(state.perInstallmentPaid[inst.id] ?? "0")}
@@ -174,6 +184,10 @@ export default async function LoanDetailPage({
                 ))}
               </TableBody>
             </Table>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Interest is 15% of the opening principal each cycle. Paying more
+              than interest reduces the principal, which lowers next cycle&apos;s interest.
+            </p>
             </div>
           </CardContent>
         </Card>

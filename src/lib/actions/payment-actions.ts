@@ -78,11 +78,18 @@ export async function recordPayment(input: PaymentInput): Promise<PaymentResult>
   const state = computeLoanState({
     principal: loan.principal,
     status: loan.status,
+    interestRatePct: loan.interestRatePct,
     installments: loan.installments,
     payments: [...loan.payments, { amount: d.amount, installmentId: target.id }],
   });
   const { installmentStatuses, loanStatus, settled } = deriveStatuses(
-    { principal: loan.principal, status: loan.status, installments: loan.installments, payments: [] },
+    {
+      principal: loan.principal,
+      status: loan.status,
+      interestRatePct: loan.interestRatePct,
+      installments: loan.installments,
+      payments: [],
+    },
     state,
     target.cycleNumber,
     loan.dueAt,
@@ -105,8 +112,14 @@ export async function recordPayment(input: PaymentInput): Promise<PaymentResult>
 
     for (const inst of loan.installments) {
       const status = installmentStatuses[inst.id] as InstallmentStatus;
-      if (status !== inst.status) {
-        await tx.installment.update({ where: { id: inst.id }, data: { status } });
+      const newInterest = state.perInstallmentInterestOwed[inst.id];
+      const updates: { status?: InstallmentStatus; expectedInterest?: string } = {};
+      if (status !== inst.status) updates.status = status;
+      if (newInterest && newInterest.toFixed(2) !== inst.expectedInterest.toString()) {
+        updates.expectedInterest = newInterest.toFixed(2);
+      }
+      if (Object.keys(updates).length > 0) {
+        await tx.installment.update({ where: { id: inst.id }, data: updates });
       }
     }
 
@@ -194,6 +207,7 @@ export async function updatePayment(
     const state = computeLoanState({
       principal: loan.principal,
       status: loan.status,
+      interestRatePct: loan.interestRatePct,
       installments: loan.installments,
       payments: projectedPayments,
     });
@@ -201,6 +215,7 @@ export async function updatePayment(
       {
         principal: loan.principal,
         status: loan.status,
+        interestRatePct: loan.interestRatePct,
         installments: loan.installments,
         payments: [],
       },
@@ -224,11 +239,14 @@ export async function updatePayment(
       });
       for (const inst of loan.installments) {
         const status = installmentStatuses[inst.id] as InstallmentStatus;
-        if (status !== inst.status) {
-          await tx.installment.update({
-            where: { id: inst.id },
-            data: { status },
-          });
+        const newInterest = state.perInstallmentInterestOwed[inst.id];
+        const updates: { status?: InstallmentStatus; expectedInterest?: string } = {};
+        if (status !== inst.status) updates.status = status;
+        if (newInterest && newInterest.toFixed(2) !== inst.expectedInterest.toString()) {
+          updates.expectedInterest = newInterest.toFixed(2);
+        }
+        if (Object.keys(updates).length > 0) {
+          await tx.installment.update({ where: { id: inst.id }, data: updates });
         }
       }
       if (loanStatus !== loan.status) {
@@ -311,6 +329,7 @@ export async function deletePayment(
     const state = computeLoanState({
       principal: loan.principal,
       status: loan.status,
+      interestRatePct: loan.interestRatePct,
       installments: loan.installments,
       payments: projectedPayments,
     });
@@ -322,6 +341,7 @@ export async function deletePayment(
       {
         principal: loan.principal,
         status: loan.status,
+        interestRatePct: loan.interestRatePct,
         installments: loan.installments,
         payments: [],
       },
@@ -335,11 +355,14 @@ export async function deletePayment(
       await tx.payment.delete({ where: { id: existing.id } });
       for (const inst of loan.installments) {
         const status = installmentStatuses[inst.id] as InstallmentStatus;
-        if (status !== inst.status) {
-          await tx.installment.update({
-            where: { id: inst.id },
-            data: { status },
-          });
+        const newInterest = state.perInstallmentInterestOwed[inst.id];
+        const updates: { status?: InstallmentStatus; expectedInterest?: string } = {};
+        if (status !== inst.status) updates.status = status;
+        if (newInterest && newInterest.toFixed(2) !== inst.expectedInterest.toString()) {
+          updates.expectedInterest = newInterest.toFixed(2);
+        }
+        if (Object.keys(updates).length > 0) {
+          await tx.installment.update({ where: { id: inst.id }, data: updates });
         }
       }
       if (loanStatus !== loan.status) {

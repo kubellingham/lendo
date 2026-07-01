@@ -2,11 +2,17 @@ import Decimal from "decimal.js";
 import { add, money, round2, subtract } from "@/lib/money";
 import type { InstallmentStatus, LoanStatus } from "@/generated/prisma/enums";
 
-// Allocation model (v1):
-//   Each cycle charges interest I = 0.15 * P. When money is applied to a cycle
-//   it covers that cycle's interest first; any surplus pays down principal
-//   (a single global pool, capped at P). The loan is settled once principal is
-//   fully paid. This is consistent and exact: collected == interest + principal.
+// Reducing-balance allocation model:
+//   Each cycle's interest is 15% of the *outstanding principal at the start
+//   of that cycle*. Interest is charged fresh each cycle (simple, not
+//   compounding). A payment applied to a cycle covers that cycle's interest
+//   first; any surplus reduces principal, which lowers the interest owed for
+//   every subsequent cycle. Once principal reaches zero the loan is SETTLED.
+//
+// Example (Rashid): P = 1,000,000 issued.
+//   Cycle 1 interest owed = 150,000. Rashid pays 550,000.
+//     → 150,000 covers interest. 400,000 pays down principal.
+//     → Opening principal for cycle 2 = 600,000. Cycle 2 interest = 90,000.
 
 export interface CalcInstallment {
   id: string;
@@ -25,18 +31,19 @@ export interface CalcPayment {
 export interface LoanStateInput {
   principal: Decimal | string;
   status: LoanStatus;
+  interestRatePct?: Decimal | string | number;
   installments: CalcInstallment[];
   payments: CalcPayment[];
 }
 
 export interface LoanState {
   principal: Decimal;
-  perCycleInterest: Decimal;
+  ratePct: Decimal;
   totalCollected: Decimal;
   interestCollected: Decimal;
   principalCollected: Decimal;
   principalOutstanding: Decimal;
-  /** Amount required to fully settle the loan right now. */
+  /** Amount required to fully settle the loan right now (principal + this cycle's remaining interest). */
   settlementAmountNow: Decimal;
   /** Interest-only amount to roll the current cycle. */
   interestOnlyNow: Decimal;
@@ -44,6 +51,10 @@ export interface LoanState {
   currentCycle: number | null;
   isSettled: boolean;
   perInstallmentPaid: Record<string, Decimal>;
+  /** Interest recomputed per cycle under the reducing-balance rule. */
+  perInstallmentInterestOwed: Record<string, Decimal>;
+  /** Principal outstanding at the start of each cycle. */
+  perInstallmentOpeningPrincipal: Record<string, Decimal>;
 }
 
 export interface DerivedStatuses {
@@ -65,21 +76,25 @@ export function deriveStatuses(
   now: Date,
 ): DerivedStatuses {
   const settled = state.principalOutstanding.lte(0);
-  const I = state.perCycleInterest;
   const installmentStatuses: Record<string, InstallmentStatus> = {};
 
   for (const inst of loan.installments) {
     const paid = state.perInstallmentPaid[inst.id] ?? new Decimal(0);
+    const interestOwed =
+      state.perInstallmentInterestOwed[inst.id] ?? new Decimal(0);
     let status: InstallmentStatus;
     if (settled) {
       status =
         inst.cycleNumber >= targetCycle
           ? "SETTLED"
-          : paid.gte(I)
+          : paid.gte(interestOwed)
             ? "INTEREST_PAID"
             : "SETTLED";
-    } else if (paid.gte(I)) {
+    } else if (interestOwed.gt(0) && paid.gte(interestOwed)) {
       status = "INTEREST_PAID";
+    } else if (interestOwed.eq(0)) {
+      // Cycle carries no interest (principal already zero) — nothing to owe.
+      status = "SETTLED";
     } else if (now.getTime() > inst.dueDate.getTime()) {
       status = "OVERDUE";
     } else {
@@ -94,10 +109,8 @@ export function deriveStatuses(
   } else if (now.getTime() > loanDueAt.getTime()) {
     loanStatus = "DEFAULTED";
   } else {
-    // Overdue if any not-yet-rolled installment is past its due date.
     const anyOverdue = loan.installments.some(
-      (inst) =>
-        installmentStatuses[inst.id] === "OVERDUE",
+      (inst) => installmentStatuses[inst.id] === "OVERDUE",
     );
     loanStatus = anyOverdue ? "OVERDUE" : "ACTIVE";
   }
@@ -107,68 +120,96 @@ export function deriveStatuses(
 
 export function computeLoanState(loan: LoanStateInput): LoanState {
   const principal = round2(loan.principal);
-  const perCycleInterest =
-    loan.installments.length > 0
-      ? round2(loan.installments[0].expectedInterest)
-      : round2(principal.times(0.15));
+  const ratePct = money(loan.interestRatePct ?? 15);
+  const rateFrac = ratePct.div(100);
 
+  const sortedInstallments = [...loan.installments].sort(
+    (a, b) => a.cycleNumber - b.cycleNumber,
+  );
+
+  // Bucket payments by installment.
   const perInstallmentPaid: Record<string, Decimal> = {};
-  for (const inst of loan.installments) perInstallmentPaid[inst.id] = new Decimal(0);
-
+  for (const inst of sortedInstallments) perInstallmentPaid[inst.id] = new Decimal(0);
+  let unallocated = new Decimal(0);
   let totalCollected = new Decimal(0);
   for (const p of loan.payments) {
     const amt = money(p.amount);
     totalCollected = totalCollected.plus(amt);
     if (p.installmentId && perInstallmentPaid[p.installmentId] !== undefined) {
-      perInstallmentPaid[p.installmentId] =
-        perInstallmentPaid[p.installmentId].plus(amt);
+      perInstallmentPaid[p.installmentId] = perInstallmentPaid[p.installmentId].plus(amt);
+    } else {
+      unallocated = unallocated.plus(amt);
     }
   }
   totalCollected = round2(totalCollected);
 
-  // Surplus over each cycle's interest pays principal.
-  let principalSurplus = new Decimal(0);
-  for (const inst of loan.installments) {
-    const paid = perInstallmentPaid[inst.id] ?? new Decimal(0);
-    const surplus = paid.minus(perCycleInterest);
-    if (surplus.gt(0)) principalSurplus = principalSurplus.plus(surplus);
+  // Walk cycles in order, applying reducing-balance interest.
+  const perInstallmentInterestOwed: Record<string, Decimal> = {};
+  const perInstallmentOpeningPrincipal: Record<string, Decimal> = {};
+  let openingPrincipal = principal;
+  let principalCollected = new Decimal(0);
+  let interestCollected = new Decimal(0);
+
+  for (const inst of sortedInstallments) {
+    const cycleInterest = round2(openingPrincipal.times(rateFrac));
+    perInstallmentInterestOwed[inst.id] = cycleInterest;
+    perInstallmentOpeningPrincipal[inst.id] = openingPrincipal;
+
+    const paid = perInstallmentPaid[inst.id];
+    // Interest gets covered first.
+    const interestPaidThisCycle = Decimal.min(paid, cycleInterest);
+    interestCollected = interestCollected.plus(interestPaidThisCycle);
+    // Surplus (if any) reduces principal.
+    const principalPaidThisCycle = Decimal.max(0, paid.minus(cycleInterest));
+    const applied = Decimal.min(principalPaidThisCycle, openingPrincipal);
+    principalCollected = principalCollected.plus(applied);
+    openingPrincipal = openingPrincipal.minus(applied);
+    if (openingPrincipal.lte(0)) openingPrincipal = new Decimal(0);
   }
-  // Payments not tied to an installment still reduce principal after interest.
-  const unallocated = loan.payments
-    .filter((p) => !p.installmentId)
-    .reduce<Decimal>((acc, p) => acc.plus(money(p.amount)), new Decimal(0));
-  principalSurplus = principalSurplus.plus(unallocated);
 
-  const principalCollected = Decimal.min(principal, Decimal.max(0, principalSurplus));
-  const interestCollected = round2(totalCollected.minus(principalCollected));
+  // Unallocated payments reduce principal after each cycle's interest is
+  // covered above — they don't produce extra interest by themselves.
+  if (unallocated.gt(0)) {
+    const applied = Decimal.min(unallocated, openingPrincipal);
+    principalCollected = principalCollected.plus(applied);
+    openingPrincipal = openingPrincipal.minus(applied);
+  }
+
   const principalOutstanding = round2(subtract(principal, principalCollected));
+  const isSettled = loan.status === "SETTLED" || principalOutstanding.lte(0);
 
-  const isSettled =
-    loan.status === "SETTLED" || principalOutstanding.lte(0);
+  // Current cycle = earliest cycle whose interest isn't yet fully paid and
+  // whose interest owed is > 0 (i.e. principal wasn't already zero going in).
+  const currentInst = isSettled
+    ? undefined
+    : sortedInstallments.find((i) => {
+        const owed = perInstallmentInterestOwed[i.id];
+        const paid = perInstallmentPaid[i.id] ?? new Decimal(0);
+        return owed.gt(0) && paid.lt(owed);
+      });
+  const currentCycle = currentInst?.cycleNumber ?? null;
 
-  // Current cycle = earliest installment still awaiting interest (i.e. not yet
-  // rolled via INTEREST_PAID and not SETTLED).
-  const currentInst = loan.installments
-    .slice()
-    .sort((a, b) => a.cycleNumber - b.cycleNumber)
-    .find((i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID");
-  const currentCycle = isSettled ? null : (currentInst?.cycleNumber ?? null);
-
+  const interestOwedThisCycle = currentInst
+    ? perInstallmentInterestOwed[currentInst.id]
+    : new Decimal(0);
   const interestPaidThisCycle = currentInst
-    ? Decimal.min(perCycleInterest, perInstallmentPaid[currentInst.id] ?? new Decimal(0))
-    : perCycleInterest;
+    ? Decimal.min(
+        interestOwedThisCycle,
+        perInstallmentPaid[currentInst.id] ?? new Decimal(0),
+      )
+    : new Decimal(0);
   const interestOnlyNow = isSettled
     ? new Decimal(0)
-    : round2(subtract(perCycleInterest, interestPaidThisCycle));
+    : round2(subtract(interestOwedThisCycle, interestPaidThisCycle));
   const settlementAmountNow = isSettled
     ? new Decimal(0)
     : round2(add(principalOutstanding, interestOnlyNow));
 
   return {
     principal,
-    perCycleInterest,
+    ratePct,
     totalCollected,
-    interestCollected,
+    interestCollected: round2(interestCollected),
     principalCollected: round2(principalCollected),
     principalOutstanding,
     settlementAmountNow,
@@ -176,5 +217,7 @@ export function computeLoanState(loan: LoanStateInput): LoanState {
     currentCycle,
     isSettled,
     perInstallmentPaid,
+    perInstallmentInterestOwed,
+    perInstallmentOpeningPrincipal,
   };
 }
