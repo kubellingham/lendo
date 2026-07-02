@@ -86,7 +86,7 @@ export function RecordPaymentForm({
           size="sm"
           onClick={() => setValue("amount", interestOnlyAmount)}
         >
-          Interest only
+          Interest only ({Number(interestOnlyAmount).toLocaleString()})
         </Button>
         <Button
           type="button"
@@ -94,9 +94,13 @@ export function RecordPaymentForm({
           size="sm"
           onClick={() => setValue("amount", settlementAmount)}
         >
-          Full settlement
+          Full settlement ({Number(settlementAmount).toLocaleString()})
         </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        You can record as many payments as you want against the current cycle.
+        Interest is charged first; anything extra reduces principal.
+      </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate, formatDateTime, toIsoDate } from "@/lib/dates";
-import { formatTZS, toDbString } from "@/lib/money";
+import { formatTZS, money, toDbString } from "@/lib/money";
 import { computeLoanState } from "@/lib/loan-calc";
 import {
   RecordPaymentForm,
@@ -264,6 +264,125 @@ export default async function LoanDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      {loan.payments.length > 0 ? (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Payments by cycle</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loan.installments.map((inst) => {
+              const paymentsInCycle = [...loan.payments]
+                .filter((p) => p.installmentId === inst.id)
+                .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
+              if (paymentsInCycle.length === 0 && inst.status === "PENDING") {
+                return null;
+              }
+              const interestOwed = money(
+                state.perInstallmentInterestOwed[inst.id] ?? "0",
+              );
+              const paidThisCycle = money(
+                state.perInstallmentPaid[inst.id] ?? "0",
+              );
+              const interestCovered = paidThisCycle.gte(interestOwed)
+                ? interestOwed
+                : paidThisCycle;
+              const principalFromThisCycle = paidThisCycle.gt(interestOwed)
+                ? paidThisCycle.minus(interestOwed)
+                : money("0");
+              const interestRemaining = interestOwed.minus(interestCovered);
+              const pct = interestOwed.gt(0)
+                ? Number(
+                    interestCovered
+                      .div(interestOwed)
+                      .times(100)
+                      .toDecimalPlaces(0)
+                      .toString(),
+                  )
+                : 100;
+              return (
+                <div key={inst.id} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <div className="font-medium">
+                      Cycle {inst.cycleNumber} · due {formatDate(inst.dueDate)}
+                    </div>
+                    <InstallmentStatusBadge status={inst.status} />
+                  </div>
+                  <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-4">
+                    <div>
+                      <div>Interest owed</div>
+                      <div className="text-sm font-medium text-foreground">
+                        {formatTZS(interestOwed)}
+                      </div>
+                    </div>
+                    <div>
+                      <div>Interest covered</div>
+                      <div className="text-sm font-medium text-foreground">
+                        {formatTZS(interestCovered)}
+                      </div>
+                    </div>
+                    <div>
+                      <div>Applied to principal</div>
+                      <div className="text-sm font-medium text-foreground">
+                        {formatTZS(principalFromThisCycle)}
+                      </div>
+                    </div>
+                    <div>
+                      <div>
+                        {interestRemaining.lte(0)
+                          ? "Cycle can roll"
+                          : "Still owed to roll"}
+                      </div>
+                      <div
+                        className={`text-sm font-medium ${
+                          interestRemaining.lte(0)
+                            ? "text-emerald-600"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {interestRemaining.lte(0)
+                          ? "✓"
+                          : formatTZS(interestRemaining)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-1.5 w-full rounded-full bg-muted">
+                    <div
+                      className={`h-1.5 rounded-full ${
+                        pct >= 100 ? "bg-emerald-500" : "bg-primary"
+                      }`}
+                      style={{ width: `${Math.min(100, pct)}%` }}
+                    />
+                  </div>
+                  {paymentsInCycle.length > 0 ? (
+                    <ul className="mt-3 space-y-1 text-sm">
+                      {paymentsInCycle.map((p, idx) => (
+                        <li
+                          key={p.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded border-l-2 border-muted-foreground/20 py-1 pl-2 pr-1"
+                        >
+                          <div className="text-xs text-muted-foreground">
+                            Payment #{idx + 1} · {formatDate(p.paidAt)} ·{" "}
+                            {p.method}
+                            {p.reference ? ` · ${p.reference}` : ""}
+                          </div>
+                          <span className="font-medium">
+                            {formatTZS(p.amount.toString())}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      No payments in this cycle yet.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      ) : null}
     </>
   );
 }
