@@ -30,6 +30,7 @@ import {
   PunctualityBadge,
 } from "@/components/status";
 import { PaymentActions } from "@/components/payments/payment-actions";
+import { LoanActions } from "@/components/loans/loan-actions";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -83,7 +84,22 @@ export default async function LoanDetailPage({
     <>
       <PageHeader
         title={`Loan · ${formatTZS(loan.principal.toString())}`}
-        action={<LoanStatusBadge status={loan.status} />}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <LoanStatusBadge status={loan.status} />
+            {canWrite ? (
+              <LoanActions
+                loan={{
+                  id: loan.id,
+                  principal: loan.principal.toString(),
+                  disbursedAt: toIsoDate(loan.disbursedAt),
+                }}
+                isAdmin={user.role === "ADMIN"}
+                hasPayments={loan.payments.length > 0}
+              />
+            ) : null}
+          </div>
+        }
       />
 
       <p className="-mt-4 mb-6 text-sm text-muted-foreground">
