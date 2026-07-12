@@ -2,28 +2,15 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { MESSAGE_TEMPLATES } from "../src/lib/message-templates";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const db = new PrismaClient({ adapter });
 
-const DEFAULT_TEMPLATES: { key: string; body: string }[] = [
-  {
-    key: "due_in_3_days",
-    body: "Hello {{customerName}}, this is a reminder that your loan payment of {{amount}} is due on {{dueDate}}. Please prepare to pay on time. — Lendo",
-  },
-  {
-    key: "due_today",
-    body: "Hello {{customerName}}, your loan payment of {{amount}} is due TODAY ({{dueDate}}). Kindly settle to avoid penalties. — Lendo",
-  },
-  {
-    key: "overdue_1d",
-    body: "Hello {{customerName}}, your loan payment of {{amount}} was due on {{dueDate}} and is now overdue. Please pay as soon as possible. — Lendo",
-  },
-  {
-    key: "overdue_7d",
-    body: "Hello {{customerName}}, your loan payment of {{amount}} is 7 days overdue (was due {{dueDate}}). Please contact our office immediately. — Lendo",
-  },
-];
+const DEFAULT_TEMPLATES = MESSAGE_TEMPLATES.map((t) => ({
+  key: t.key,
+  body: t.body,
+}));
 
 async function main() {
   const email = (process.env.SEED_ADMIN_EMAIL || "admin@lendo.co.tz").toLowerCase();

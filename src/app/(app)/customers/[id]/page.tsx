@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { LoanStatusBadge, FlagBadge } from "@/components/status";
 import { FlagControls } from "@/components/customers/flag-controls";
+import { SendMessage } from "@/components/messaging/send-message";
 
 function Detail({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -55,10 +56,14 @@ export default async function CustomerProfilePage({
           customer.businessName ?? (customer.type === "BUSINESS" ? "Business" : "Individual")
         }
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {customer.isFlagged ? (
               <Badge variant="destructive">{customer.flagReason ?? "Flagged"}</Badge>
             ) : null}
+            <SendMessage
+              context={{ kind: "customer", customerId: customer.id }}
+              triggerLabel="Message"
+            />
             {canWrite ? (
               <>
                 <Button asChild variant="outline">

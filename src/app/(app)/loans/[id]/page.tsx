@@ -31,6 +31,7 @@ import {
 } from "@/components/status";
 import { PaymentActions } from "@/components/payments/payment-actions";
 import { LoanActions } from "@/components/loans/loan-actions";
+import { SendMessage } from "@/components/messaging/send-message";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -87,6 +88,16 @@ export default async function LoanDetailPage({
         action={
           <div className="flex flex-wrap items-center gap-2">
             <LoanStatusBadge status={loan.status} />
+            <SendMessage
+              context={{ kind: "loan", loanId: loan.id }}
+              defaultTemplateKey={
+                loan.status === "SETTLED"
+                  ? "loan_settled"
+                  : loan.status === "OVERDUE" || loan.status === "DEFAULTED"
+                    ? "overdue"
+                    : "reminder_3d"
+              }
+            />
             {canWrite ? (
               <LoanActions
                 loan={{
@@ -251,24 +262,31 @@ export default async function LoanDetailPage({
                       </TableCell>
                       {canWrite ? (
                         <TableCell>
-                          <PaymentActions
-                            payment={{
-                              id: p.id,
-                              loanId: loan.id,
-                              amount: p.amount.toString(),
-                              paidAt: toIsoDate(p.paidAt),
-                              method: p.method,
-                              reference: p.reference,
-                              note: p.note,
-                              installmentId: p.installmentId,
-                            }}
-                            installments={loan.installments.map((i) => ({
-                              id: i.id,
-                              cycleNumber: i.cycleNumber,
-                              label: `Cycle ${i.cycleNumber} — due ${formatDate(i.dueDate)}`,
-                            }))}
-                            isAdmin={user.role === "ADMIN"}
-                          />
+                          <div className="flex items-center gap-1">
+                            <SendMessage
+                              context={{ kind: "payment", paymentId: p.id }}
+                              triggerLabel="Receipt"
+                              triggerVariant="ghost"
+                            />
+                            <PaymentActions
+                              payment={{
+                                id: p.id,
+                                loanId: loan.id,
+                                amount: p.amount.toString(),
+                                paidAt: toIsoDate(p.paidAt),
+                                method: p.method,
+                                reference: p.reference,
+                                note: p.note,
+                                installmentId: p.installmentId,
+                              }}
+                              installments={loan.installments.map((i) => ({
+                                id: i.id,
+                                cycleNumber: i.cycleNumber,
+                                label: `Cycle ${i.cycleNumber} — due ${formatDate(i.dueDate)}`,
+                              }))}
+                              isAdmin={user.role === "ADMIN"}
+                            />
+                          </div>
                         </TableCell>
                       ) : null}
                     </TableRow>
