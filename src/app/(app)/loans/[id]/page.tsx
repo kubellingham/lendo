@@ -92,6 +92,15 @@ export default async function LoanDetailPage({
             <LoanStatusBadge status={loan.status} />
             <Button asChild variant="outline" size="sm">
               <a
+                href={`/api/receipts/disbursement/${loan.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <FileDown className="size-4" /> Disbursement PDF
+              </a>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <a
                 href={`/api/receipts/loan/${loan.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
