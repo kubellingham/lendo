@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { FileDown } from "lucide-react";
 import { db } from "@/lib/db";
+import { Button } from "@/components/ui/button";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate, formatDateTime, toIsoDate } from "@/lib/dates";
 import { formatTZS, money, toDbString } from "@/lib/money";
@@ -88,6 +90,15 @@ export default async function LoanDetailPage({
         action={
           <div className="flex flex-wrap items-center gap-2">
             <LoanStatusBadge status={loan.status} />
+            <Button asChild variant="outline" size="sm">
+              <a
+                href={`/api/receipts/loan/${loan.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <FileDown className="size-4" /> Statement PDF
+              </a>
+            </Button>
             <SendMessage
               context={{ kind: "loan", loanId: loan.id }}
               defaultTemplateKey={
@@ -263,6 +274,16 @@ export default async function LoanDetailPage({
                       {canWrite ? (
                         <TableCell>
                           <div className="flex items-center gap-1">
+                            <Button asChild variant="ghost" size="sm">
+                              <a
+                                href={`/api/receipts/payment/${p.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Download PDF receipt"
+                              >
+                                <FileDown className="size-4" /> PDF
+                              </a>
+                            </Button>
                             <SendMessage
                               context={{ kind: "payment", paymentId: p.id }}
                               triggerLabel="Receipt"
