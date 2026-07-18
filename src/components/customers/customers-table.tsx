@@ -5,6 +5,7 @@ import { type ColumnDef } from "@tanstack/react-table";
 import { Flag } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 
 export type CustomerRow = {
   id: string;
@@ -23,16 +24,25 @@ const columns: ColumnDef<CustomerRow>[] = [
     accessorKey: "fullName",
     header: "Name",
     cell: ({ row }) => (
-      <div className="flex items-center gap-2">
-        <span className="font-medium">{row.original.fullName}</span>
-        {row.original.isFlagged ? (
-          <Flag className="size-3.5 text-destructive" />
-        ) : null}
-        {row.original.businessName ? (
-          <span className="text-xs text-muted-foreground">
-            ({row.original.businessName})
-          </span>
-        ) : null}
+      <div className="flex items-center gap-3">
+        <Avatar
+          name={row.original.fullName}
+          size="sm"
+          tone={row.original.isFlagged ? "danger" : "default"}
+        />
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium">{row.original.fullName}</span>
+            {row.original.isFlagged ? (
+              <Flag className="size-3.5 text-destructive" />
+            ) : null}
+          </div>
+          {row.original.businessName ? (
+            <div className="text-xs text-muted-foreground">
+              {row.original.businessName}
+            </div>
+          ) : null}
+        </div>
       </div>
     ),
   },

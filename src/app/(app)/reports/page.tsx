@@ -23,7 +23,7 @@ function Stat({ label, value }: { label: string; value: string }) {
     <Card>
       <CardContent className="pt-6">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="mt-1 text-xl font-semibold">{value}</div>
+        <div className="stat-value mt-1 text-xl font-semibold">{value}</div>
       </CardContent>
     </Card>
   );

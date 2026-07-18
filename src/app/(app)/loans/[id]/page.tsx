@@ -34,13 +34,14 @@ import {
 import { PaymentActions } from "@/components/payments/payment-actions";
 import { LoanActions } from "@/components/loans/loan-actions";
 import { SendMessage } from "@/components/messaging/send-message";
+import { Avatar } from "@/components/ui/avatar";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <Card>
       <CardContent className="pt-6">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="mt-1 text-xl font-semibold">{value}</div>
+        <div className="stat-value mt-1 text-xl font-semibold">{value}</div>
       </CardContent>
     </Card>
   );
@@ -87,6 +88,12 @@ export default async function LoanDetailPage({
     <>
       <PageHeader
         title={`Loan · ${formatTZS(loan.principal.toString())}`}
+        leading={<Avatar name={loan.customer.fullName} size="lg" />}
+        description={
+          <span className="font-mono text-xs">
+            LND-{loan.id.slice(-6).toUpperCase()}
+          </span>
+        }
         action={
           <div className="flex flex-wrap items-center gap-2">
             <LoanStatusBadge status={loan.status} />

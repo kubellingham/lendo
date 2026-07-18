@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { LoanStatusBadge, FlagBadge } from "@/components/status";
 import { FlagControls } from "@/components/customers/flag-controls";
 import { SendMessage } from "@/components/messaging/send-message";
+import { Avatar } from "@/components/ui/avatar";
 
 function Detail({ label, value }: { label: string; value?: string | null }) {
   return (
@@ -52,6 +53,13 @@ export default async function CustomerProfilePage({
     <>
       <PageHeader
         title={customer.fullName}
+        leading={
+          <Avatar
+            name={customer.fullName}
+            size="lg"
+            tone={customer.isFlagged ? "danger" : "default"}
+          />
+        }
         description={
           customer.businessName ?? (customer.type === "BUSINESS" ? "Business" : "Individual")
         }

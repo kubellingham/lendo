@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
 @theme {
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
   --color-background: hsl(0 0% 100%);
   --color-foreground: hsl(222 47% 11%);
+  /* Slate-50 canvas behind white cards, per the Lendo design system. */
+  --color-canvas: hsl(210 40% 98%);
   --color-card: hsl(0 0% 100%);
   --color-card-foreground: hsl(222 47% 11%);
   --color-muted: hsl(210 40% 96%);
@@ -36,4 +41,15 @@ body {
   background: var(--color-background);
   color: var(--color-foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Money and figures line up in columns (design uses tabular numerals). */
+table {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Large KPI figures: tight tracking + tabular, matching the design comps. */
+.stat-value {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
 }

@@ -22,7 +22,7 @@ function Stat({
   const inner = (
     <CardContent className="pt-6">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-1 text-2xl font-semibold">{value}</div>
+      <div className="stat-value mt-1 text-2xl font-semibold">{value}</div>
     </CardContent>
   );
   return (
