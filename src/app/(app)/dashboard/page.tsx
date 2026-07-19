@@ -9,26 +9,50 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PunctualityBadge, LoanStatusBadge } from "@/components/status";
+import { Avatar } from "@/components/ui/avatar";
+
+const TONES = {
+  default: "border-slate-200 bg-white",
+  primary: "border-slate-200 bg-slate-50",
+  success: "border-emerald-200 bg-emerald-50",
+  danger: "border-red-200 bg-red-50",
+} as const;
+
+const VALUE_TONE = {
+  default: "text-slate-900",
+  primary: "text-slate-900",
+  success: "text-emerald-700",
+  danger: "text-red-700",
+} as const;
 
 function Stat({
   label,
   value,
+  sub,
   href,
+  tone = "default",
 }: {
   label: string;
   value: string;
+  sub?: string;
   href?: string;
+  tone?: keyof typeof TONES;
 }) {
   const inner = (
-    <CardContent className="pt-6">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="stat-value mt-1 text-2xl font-semibold">{value}</div>
-    </CardContent>
+    <div className={`rounded-xl border p-4 sm:p-5 ${TONES[tone]}`}>
+      <div className="text-[13px] text-slate-500">{label}</div>
+      <div className={`stat-value mt-1.5 text-2xl font-semibold ${VALUE_TONE[tone]}`}>
+        {value}
+      </div>
+      {sub ? <div className="mt-1 text-xs text-slate-500">{sub}</div> : null}
+    </div>
   );
-  return (
-    <Card className={href ? "transition-colors hover:bg-accent" : undefined}>
-      {href ? <Link href={href}>{inner}</Link> : inner}
-    </Card>
+  return href ? (
+    <Link href={href} className="block transition-shadow hover:shadow-sm">
+      {inner}
+    </Link>
+  ) : (
+    inner
   );
 }
 
@@ -154,33 +178,27 @@ export default async function DashboardPage() {
         <Stat
           label="Active loans"
           value={activeLoans.toString()}
+          sub={`${customerCount} customers`}
           href="/loans?status=ACTIVE"
+          tone="primary"
         />
         <Stat
           label="Principal outstanding"
           value={formatTZS(outstanding)}
+          sub="Across active & overdue loans"
         />
         <Stat
           label="Overdue / defaulted"
           value={(overdueLoans + defaultedLoans).toString()}
+          sub={`${defaultedLoans} defaulted`}
           href="/loans?status=OVERDUE"
+          tone={overdueLoans + defaultedLoans > 0 ? "danger" : "default"}
         />
         <Stat
           label="Collected this week"
           value={formatTZS(weekCollectedAgg._sum.amount?.toString() ?? "0")}
-        />
-      </div>
-
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <Stat label="Customers" value={customerCount.toString()} href="/customers" />
-        <Stat
-          label="Collected this month"
-          value={formatTZS(monthCollectedAgg._sum.amount?.toString() ?? "0")}
-        />
-        <Stat
-          label="Defaulted loans"
-          value={defaultedLoans.toString()}
-          href="/loans?status=DEFAULTED"
+          sub={`${formatTZS(monthCollectedAgg._sum.amount?.toString() ?? "0")} this month`}
+          tone="success"
         />
       </div>
 
@@ -202,9 +220,10 @@ export default async function DashboardPage() {
                   <li key={i.id}>
                     <Link
                       href={`/loans/${i.loan.id}`}
-                      className="flex items-center justify-between rounded-md border p-2 text-sm hover:bg-accent"
+                      className="flex items-center gap-3 rounded-md border p-2 text-sm hover:bg-accent"
                     >
-                      <div>
+                      <Avatar name={i.loan.customer.fullName} size="sm" />
+                      <div className="min-w-0 flex-1">
                         <div className="font-medium">{i.loan.customer.fullName}</div>
                         <div className="text-xs text-muted-foreground">
                           Cycle {i.cycleNumber} · due {formatDate(i.dueDate)}
@@ -238,9 +257,10 @@ export default async function DashboardPage() {
                   <li key={i.id}>
                     <Link
                       href={`/loans/${i.loan.id}`}
-                      className="flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm hover:bg-destructive/10"
+                      className="flex items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm hover:bg-destructive/10"
                     >
-                      <div>
+                      <Avatar name={i.loan.customer.fullName} size="sm" tone="danger" />
+                      <div className="min-w-0 flex-1">
                         <div className="font-medium">{i.loan.customer.fullName}</div>
                         <div className="text-xs text-muted-foreground">
                           Cycle {i.cycleNumber} · was due {formatDate(i.dueDate)}
@@ -273,9 +293,10 @@ export default async function DashboardPage() {
                 {recentPayments.map((p) => (
                   <li
                     key={p.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm"
+                    className="flex flex-wrap items-center gap-3 rounded-md border p-2 text-sm"
                   >
-                    <div className="min-w-0">
+                    <Avatar name={p.loan.customer.fullName} size="sm" />
+                    <div className="min-w-0 flex-1">
                       <Link
                         href={`/loans/${p.loan.id}`}
                         className="font-medium hover:underline"
