@@ -5,11 +5,8 @@ import { db } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requireRole, ForbiddenError } from "@/lib/rbac";
 import { toDbString, round2, money } from "@/lib/money";
-import {
-  interestByMonth,
-  DEFAULT_TITHE_RATE_PCT,
-  type TitheLoan,
-} from "@/lib/tithes";
+import { interestByMonth, type TitheLoan } from "@/lib/tithes";
+import { getTitheRatePct } from "@/lib/settings";
 
 export type TitheResult =
   | { ok: true; period: string }
@@ -55,15 +52,16 @@ export async function submitTithe(
       return { ok: false, error: "Invalid period." };
     }
 
+    const ratePct = await getTitheRatePct();
     const loans = await loansForTithe();
     const interest = interestByMonth(loans).get(period) ?? money(0);
-    const amount = round2(interest.times(DEFAULT_TITHE_RATE_PCT).div(100));
+    const amount = round2(interest.times(ratePct).div(100));
 
     await db.tithePayment.upsert({
       where: { period },
       update: {
         interestBase: toDbString(interest),
-        ratePct: DEFAULT_TITHE_RATE_PCT,
+        ratePct,
         amount: toDbString(amount),
         submittedById: user.id,
         submittedByName: user.name ?? user.email ?? "Admin",
@@ -73,7 +71,7 @@ export async function submitTithe(
       create: {
         period,
         interestBase: toDbString(interest),
-        ratePct: DEFAULT_TITHE_RATE_PCT,
+        ratePct,
         amount: toDbString(amount),
         submittedById: user.id,
         submittedByName: user.name ?? user.email ?? "Admin",

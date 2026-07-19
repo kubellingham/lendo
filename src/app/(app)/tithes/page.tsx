@@ -7,9 +7,9 @@ import {
   interestByMonth,
   monthsRange,
   periodLabel,
-  DEFAULT_TITHE_RATE_PCT,
   type TitheLoan,
 } from "@/lib/tithes";
+import { getTitheRatePct } from "@/lib/settings";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +41,7 @@ export default async function TithesPage() {
     redirect("/dashboard?denied=1");
   }
   const canSubmit = user.role === "ADMIN";
+  const titheRate = await getTitheRatePct();
 
   const [loans, submissions] = await Promise.all([
     db.loan.findMany({
@@ -73,7 +74,7 @@ export default async function TithesPage() {
   let pendingTithe = money(0);
   for (const period of periods) {
     const interest = monthly.get(period) ?? money(0);
-    const tithe = round2(interest.times(DEFAULT_TITHE_RATE_PCT).div(100));
+    const tithe = round2(interest.times(titheRate).div(100));
     totalInterest = totalInterest.plus(interest);
     totalTithe = totalTithe.plus(tithe);
     if (!submittedBy.has(period)) pendingTithe = pendingTithe.plus(tithe);
@@ -83,13 +84,13 @@ export default async function TithesPage() {
     <>
       <PageHeader
         title="Tithes"
-        description={`Interest earned each month and ${DEFAULT_TITHE_RATE_PCT}% set aside as tithes.`}
+        description={`Interest earned each month and ${titheRate}% set aside as tithes.`}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat label="Total interest (all time)" value={formatTZS(totalInterest)} />
         <Stat
-          label={`Total tithe (${DEFAULT_TITHE_RATE_PCT}%)`}
+          label={`Total tithe (${titheRate}%)`}
           value={formatTZS(totalTithe)}
         />
         <Stat label="Tithe still pending" value={formatTZS(pendingTithe)} />
@@ -104,7 +105,7 @@ export default async function TithesPage() {
                   <TableHead>Month</TableHead>
                   <TableHead className="text-right">Interest earned</TableHead>
                   <TableHead className="text-right">
-                    Tithe ({DEFAULT_TITHE_RATE_PCT}%)
+                    Tithe ({titheRate}%)
                   </TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -114,7 +115,7 @@ export default async function TithesPage() {
                 {periods.map((period) => {
                   const interest = monthly.get(period) ?? money(0);
                   const tithe = round2(
-                    interest.times(DEFAULT_TITHE_RATE_PCT).div(100),
+                    interest.times(titheRate).div(100),
                   );
                   const sub = submittedBy.get(period);
                   return (

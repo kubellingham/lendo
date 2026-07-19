@@ -48,6 +48,11 @@ async function main() {
     update: {},
     create: { key: "reminder_days_before_due", value: "3" },
   });
+  await db.setting.upsert({
+    where: { key: "tithe_rate_pct" },
+    update: {},
+    create: { key: "tithe_rate_pct", value: "10" },
+  });
   console.log("✔ Default settings ready");
 
   console.log("\nSeed complete. Login with:");
