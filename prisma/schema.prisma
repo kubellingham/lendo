@@ -51,6 +51,13 @@ enum PaymentMethod {
   OTHER
 }
 
+enum CapitalType {
+  BORROWED // money we owe back to a lender
+  INVESTMENT // an investor's money (may be repayable)
+  OWN_FUNDS // owner's own capital injected
+  OTHER
+}
+
 enum NotificationChannel {
   WHATSAPP
 }
@@ -231,6 +238,44 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([at])
+}
+
+// Capital the business raises — money we borrow from lenders, take from
+// investors, or inject ourselves. Together with customer loans/payments this
+// feeds the cash-pool view (where money comes from and where it went).
+model CapitalSource {
+  id              String      @id @default(cuid())
+  sourceName      String // who the money came from
+  type            CapitalType @default(BORROWED)
+  amount          Decimal     @db.Decimal(14, 2) // amount received
+  interestRatePct Decimal?    @db.Decimal(6, 2) // optional cost of the money
+  rateNote        String? // e.g. "per month", "flat", "one-off"
+  receivedAt      DateTime    @db.Date
+  dueAt           DateTime?   @db.Date
+  notes           String?
+  recordedById    String
+  recordedByName  String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  repayments CapitalRepayment[]
+
+  @@index([receivedAt])
+}
+
+// A repayment the business makes against a CapitalSource.
+model CapitalRepayment {
+  id              String        @id @default(cuid())
+  capitalSourceId String
+  capitalSource   CapitalSource @relation(fields: [capitalSourceId], references: [id], onDelete: Cascade)
+  amount          Decimal       @db.Decimal(14, 2)
+  paidAt          DateTime      @db.Date
+  method          PaymentMethod @default(CASH)
+  note            String?
+  recordedById    String
+  createdAt       DateTime      @default(now())
+
+  @@index([capitalSourceId])
 }
 
 // A recorded tithe submission for one calendar month. `interestBase` is the
