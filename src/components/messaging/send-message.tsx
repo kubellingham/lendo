@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MessageCircle, Copy, ExternalLink, Check } from "lucide-react";
+import {
+  MessageCircle,
+  Copy,
+  ExternalLink,
+  Check,
+  FileDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -39,6 +45,21 @@ function waLink(phoneE164: string, text: string): string {
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
 }
 
+// The matching branded PDF for a given situation, or null when the context has
+// no document (ad-hoc customer messages).
+function pdfHref(context: Context, key: string): string | null {
+  if (context.kind === "payment") {
+    return `/api/receipts/payment/${context.paymentId}`;
+  }
+  if (context.kind === "loan") {
+    if (key === "loan_disbursed") {
+      return `/api/receipts/disbursement/${context.loanId}`;
+    }
+    return `/api/notices/loan/${context.loanId}?type=${encodeURIComponent(key)}`;
+  }
+  return null;
+}
+
 export function SendMessage({
   context,
   triggerLabel = "Send WhatsApp",
@@ -63,6 +84,8 @@ export function SendMessage({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const docHref = key ? pdfHref(context, key) : null;
 
   function loadPreview(templateKey: string) {
     setError(null);
@@ -159,7 +182,21 @@ export function SendMessage({
             </p>
           ) : null}
 
+          {docHref ? (
+            <p className="text-xs text-muted-foreground">
+              Tip: WhatsApp can&apos;t auto-attach files. Download the PDF, then
+              attach it in the chat (📎) alongside the message.
+            </p>
+          ) : null}
+
           <DialogFooter>
+            {docHref ? (
+              <Button asChild variant="outline">
+                <a href={docHref} target="_blank" rel="noopener noreferrer">
+                  <FileDown className="size-4" /> Download PDF
+                </a>
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               onClick={copyToClipboard}
