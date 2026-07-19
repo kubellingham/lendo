@@ -232,3 +232,19 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([at])
 }
+
+// A recorded tithe submission for one calendar month. `interestBase` is the
+// interest (profit) collected in that month at the time of submission; `amount`
+// is the tithe actually set aside (ratePct % of the base). Stored so the ledger
+// can show which months have been submitted vs. are still pending.
+model TithePayment {
+  id              String   @id @default(cuid())
+  period          String   @unique // "YYYY-MM" in the app timezone
+  interestBase    Decimal  @db.Decimal(14, 2)
+  ratePct         Int      @default(10)
+  amount          Decimal  @db.Decimal(14, 2)
+  submittedById   String
+  submittedByName String
+  note            String?
+  submittedAt     DateTime @default(now())
+}

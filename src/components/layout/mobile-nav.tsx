@@ -12,6 +12,7 @@ import {
   Banknote,
   Receipt,
   BarChart3,
+  HandCoins,
   Settings,
 } from "lucide-react";
 
@@ -28,6 +29,12 @@ const NAV: NavItem[] = [
   { href: "/loans", label: "Loans", icon: Banknote },
   { href: "/payments", label: "Payments", icon: Receipt },
   { href: "/reports", label: "Reports", icon: BarChart3 },
+  {
+    href: "/tithes",
+    label: "Tithes",
+    icon: HandCoins,
+    roles: ["ADMIN", "ACCOUNTANT"],
+  },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
 ];
 
