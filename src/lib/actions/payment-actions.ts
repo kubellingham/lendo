@@ -6,6 +6,7 @@ import { audit } from "@/lib/audit";
 import { requireRole, ForbiddenError, WRITE_ROLES } from "@/lib/rbac";
 import { paymentSchema, type PaymentInput } from "@/lib/validation";
 import { computeLoanState, deriveStatuses } from "@/lib/loan-calc";
+import { ensureLoanCycles } from "@/lib/loan-maintenance";
 import { toDbString } from "@/lib/money";
 import { parseIsoDate, nowInTz } from "@/lib/dates";
 import { InstallmentStatus } from "@/generated/prisma/enums";
@@ -32,6 +33,10 @@ export async function recordPayment(input: PaymentInput): Promise<PaymentResult>
     };
   }
   const d = parsed.data;
+
+  // Make sure any past-term cycles exist (and interest is current) before we
+  // resolve the target cycle for this payment.
+  await ensureLoanCycles(d.loanId);
 
   const loan = await db.loan.findUnique({
     where: { id: d.loanId },

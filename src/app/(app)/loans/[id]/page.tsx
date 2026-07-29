@@ -7,6 +7,7 @@ import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate, formatDateTime, toIsoDate } from "@/lib/dates";
 import { formatTZS, money, toDbString } from "@/lib/money";
 import { computeLoanState } from "@/lib/loan-calc";
+import { ensureLoanCycles } from "@/lib/loan-maintenance";
 import {
   RecordPaymentForm,
   type InstallmentOption,
@@ -55,6 +56,10 @@ export default async function LoanDetailPage({
   const user = await requireUser();
   const canWrite = WRITE_ROLES.includes(user.role);
   const { id } = await params;
+
+  // Keep the schedule current: add any 30-day cycles that have started past the
+  // agreed term (with fresh interest) while principal is still outstanding.
+  await ensureLoanCycles(id);
 
   const loan = await db.loan.findUnique({
     where: { id },
@@ -240,7 +245,10 @@ export default async function LoanDetailPage({
             </Table>
             <p className="mt-3 text-xs text-muted-foreground">
               Interest is 15% of the opening principal each cycle. Paying more
-              than interest reduces the principal, which lowers next cycle&apos;s interest.
+              than interest reduces the principal, which lowers next
+              cycle&apos;s interest. If the loan runs past its term while still
+              unpaid, a new 30-day cycle is added automatically with fresh
+              interest until it&apos;s cleared.
             </p>
             </div>
           </CardContent>
