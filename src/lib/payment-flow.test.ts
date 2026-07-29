@@ -92,4 +92,49 @@ describe("record-payment flow", () => {
     expect(installments[0].status).toBe("OVERDUE");
     expect(r.loanStatus).toBe("OVERDUE");
   });
+
+  it("interest-only on the FINAL cycle → DEFAULTED even before the due date", () => {
+    const installments = makeInstallments();
+    const loanDueAt = parseIsoDate("2026-09-27");
+    applyPayment(installments, [], "15000", "inst1", parseIsoDate("2026-07-29"), loanDueAt);
+    applyPayment(
+      installments,
+      [{ amount: "15000", installmentId: "inst1" }],
+      "15000",
+      "inst2",
+      parseIsoDate("2026-08-28"),
+      loanDueAt,
+    );
+    // Final cycle: only the interest is paid, principal still fully owed, and
+    // it isn't past the due date yet — the term is used up, so: DEFAULTED.
+    const r3 = applyPayment(
+      installments,
+      [
+        { amount: "15000", installmentId: "inst1" },
+        { amount: "15000", installmentId: "inst2" },
+      ],
+      "15000",
+      "inst3",
+      parseIsoDate("2026-09-20"),
+      loanDueAt,
+    );
+    expect(installments[2].status).toBe("INTEREST_PAID");
+    expect(r3.loanStatus).toBe("DEFAULTED");
+    expect(r3.settled).toBe(false);
+  });
+
+  it("full settlement on the final cycle → SETTLED, not defaulted", () => {
+    const installments = makeInstallments();
+    const loanDueAt = parseIsoDate("2026-09-27");
+    const r = applyPayment(
+      installments,
+      [],
+      "115000",
+      "inst3",
+      parseIsoDate("2026-09-20"),
+      loanDueAt,
+    );
+    expect(r.settled).toBe(true);
+    expect(r.loanStatus).toBe("SETTLED");
+  });
 });

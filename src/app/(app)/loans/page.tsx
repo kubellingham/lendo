@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate } from "@/lib/dates";
 import { formatTZS } from "@/lib/money";
-import { computeLoanState } from "@/lib/loan-calc";
+import { computeLoanState, deriveStatuses } from "@/lib/loan-calc";
+import { nowInTz } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { LoansTable, type LoanRow } from "@/components/loans/loans-table";
@@ -30,36 +31,71 @@ export default async function LoansPage({
   const statusFilter =
     status && status in LoanStatus ? (status as LoanStatus) : undefined;
 
+  // Load everything and evaluate the *effective* status (so a loan that has
+  // rolled its final cycle reads as Defaulted immediately), then filter in
+  // memory. Heal any stored status that has drifted so counts elsewhere agree.
   const loans = await db.loan.findMany({
-    where: statusFilter ? { status: statusFilter } : {},
     include: {
       customer: { select: { fullName: true } },
       issuedBy: { select: { name: true } },
-      installments: true,
+      installments: { orderBy: { cycleNumber: "asc" } },
       payments: { select: { amount: true, installmentId: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 500,
   });
 
-  const rows: LoanRow[] = loans.map((loan) => {
+  const now = nowInTz();
+  const drifted: { id: string; status: LoanStatus }[] = [];
+
+  const evaluated = loans.map((loan) => {
     const state = computeLoanState({
       principal: loan.principal,
       status: loan.status,
+      interestRatePct: loan.interestRatePct,
       installments: loan.installments,
       payments: loan.payments,
     });
-    return {
+    const { loanStatus } = deriveStatuses(
+      {
+        principal: loan.principal,
+        status: loan.status,
+        interestRatePct: loan.interestRatePct,
+        cyclesAllowed: loan.cyclesAllowed,
+        installments: loan.installments,
+        payments: [],
+      },
+      state,
+      state.currentCycle ?? loan.cyclesAllowed,
+      loan.dueAt,
+      now,
+    );
+    if (loanStatus !== loan.status && loan.status !== "WRITTEN_OFF") {
+      drifted.push({ id: loan.id, status: loanStatus });
+    }
+    return { loan, state, effectiveStatus: loanStatus };
+  });
+
+  if (drifted.length > 0) {
+    await Promise.all(
+      drifted.map((d) =>
+        db.loan.update({ where: { id: d.id }, data: { status: d.status } }),
+      ),
+    );
+  }
+
+  const rows: LoanRow[] = evaluated
+    .filter((e) => !statusFilter || e.effectiveStatus === statusFilter)
+    .map(({ loan, state, effectiveStatus }) => ({
       id: loan.id,
       customerName: loan.customer.fullName,
       principal: formatTZS(loan.principal.toString()),
       outstanding: formatTZS(state.principalOutstanding),
-      status: loan.status,
+      status: effectiveStatus,
       disbursedAt: formatDate(loan.disbursedAt),
       dueAt: formatDate(loan.dueAt),
       officer: loan.issuedBy.name,
-    };
-  });
+    }));
 
   return (
     <>

@@ -32,6 +32,9 @@ export interface LoanStateInput {
   principal: Decimal | string;
   status: LoanStatus;
   interestRatePct?: Decimal | string | number;
+  /** Agreed number of cycles (default term). Used to decide when the final
+   *  cycle has been reached for default detection. */
+  cyclesAllowed?: number;
   installments: CalcInstallment[];
   payments: CalcPayment[];
 }
@@ -103,10 +106,25 @@ export function deriveStatuses(
     installmentStatuses[inst.id] = status;
   }
 
+  // The final allowed cycle of the original term (default 3). On this cycle the
+  // borrower is expected to settle in full — the principal was due.
+  const finalCycle = loan.cyclesAllowed ?? loan.installments.length;
+
   let loanStatus: LoanStatus;
   if (settled) {
     loanStatus = "SETTLED";
   } else if (now.getTime() > loanDueAt.getTime()) {
+    loanStatus = "DEFAULTED";
+  } else if (
+    // Reached the final (or an extended) cycle and only paid its interest
+    // without clearing the principal — the term is used up, so this is a
+    // default even before the calendar due date passes.
+    loan.installments.some(
+      (inst) =>
+        inst.cycleNumber >= finalCycle &&
+        installmentStatuses[inst.id] === "INTEREST_PAID",
+    )
+  ) {
     loanStatus = "DEFAULTED";
   } else {
     const anyOverdue = loan.installments.some(

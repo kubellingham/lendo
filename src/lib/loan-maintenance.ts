@@ -117,6 +117,7 @@ export async function recomputeLoan(loanId: string): Promise<void> {
       principal: loan.principal,
       status: loan.status,
       interestRatePct: loan.interestRatePct,
+      cyclesAllowed: loan.cyclesAllowed,
       installments: loan.installments,
       payments: [],
     },
