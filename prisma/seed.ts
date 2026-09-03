@@ -85,6 +85,15 @@ async function main() {
   }
   if (linked > 0) console.log(`✔ Linked ${linked} customer(s) to saved referrals`);
 
+  // Recompute the risk meter for everyone so scores are correct after deploy.
+  try {
+    const { recomputeAllRisk } = await import("../src/lib/customer-risk");
+    const n = await recomputeAllRisk();
+    console.log(`✔ Risk scores recomputed for ${n} customer(s)`);
+  } catch (e) {
+    console.error("Risk recompute skipped:", e);
+  }
+
   console.log("\nSeed complete. Login with:");
   console.log(`  email:    ${email}`);
   console.log(`  password: ${password}`);

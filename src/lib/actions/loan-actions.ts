@@ -23,9 +23,19 @@ export type LoanActionResult =
       canOverride?: boolean;
     };
 
-/** A customer is actively blacklisted when their current flag is BLACKLIST. */
-function isBlacklisted(c: { isFlagged: boolean; flagReason: string | null }): boolean {
-  return c.isFlagged && (c.flagReason ?? "").startsWith("BLACKLIST");
+/**
+ * A customer is blocked from new loans when an admin has BLACKLIST-flagged them,
+ * or the risk meter auto-blacklisted them (90+ days late / defaulted).
+ */
+function isBlacklisted(c: {
+  isFlagged: boolean;
+  flagReason: string | null;
+  autoBlacklisted?: boolean;
+}): boolean {
+  return (
+    !!c.autoBlacklisted ||
+    (c.isFlagged && (c.flagReason ?? "").startsWith("BLACKLIST"))
+  );
 }
 
 export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
@@ -59,8 +69,8 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
         requiresOverride: true,
         canOverride,
         error: canOverride
-          ? "This customer is blacklisted. Confirm the override to proceed."
-          : "This customer is blacklisted. Only an administrator can issue a loan.",
+          ? "This customer is blocked (blacklisted or high-risk). Confirm the override to proceed."
+          : "This customer is blocked (blacklisted or high-risk). Only an administrator can issue a loan.",
       };
     }
     if (!canOverride) {

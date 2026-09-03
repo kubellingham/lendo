@@ -10,6 +10,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PunctualityBadge, LoanStatusBadge } from "@/components/status";
 import { Avatar } from "@/components/ui/avatar";
+import { bandMeta } from "@/lib/credit-score";
+import type { RiskBand } from "@/generated/prisma/enums";
+
+const RISK_BANDS = (
+  ["EXCELLENT", "GOOD", "WATCH", "HIGH_RISK", "CRITICAL"] as RiskBand[]
+).map((band) => {
+  const m = bandMeta(band);
+  return { band, label: m.label, color: m.color };
+});
 
 const TONES = {
   default: "border-slate-200 bg-white",
@@ -150,6 +159,13 @@ export default async function DashboardPage() {
     });
     outstanding = outstanding.plus(state.principalOutstanding);
   }
+
+  const riskGroups = await db.customer.groupBy({
+    by: ["riskBand"],
+    _count: { _all: true },
+  });
+  const riskCounts: Record<string, number> = {};
+  for (const g of riskGroups) riskCounts[g.riskBand] = g._count._all;
 
   return (
     <>
@@ -323,6 +339,34 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Portfolio by risk</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {RISK_BANDS.map((b) => {
+              const count = riskCounts[b.band] ?? 0;
+              return (
+                <Link
+                  key={b.band}
+                  href={`/customers?risk=${b.band}`}
+                  className="flex-1 rounded-lg border p-3"
+                  style={{ minWidth: 120, borderColor: `${b.color}55` }}
+                >
+                  <div className="text-xs" style={{ color: b.color }}>
+                    {b.label}
+                  </div>
+                  <div className="stat-value mt-1 text-xl font-semibold">
+                    {count}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
     </>
   );
 }

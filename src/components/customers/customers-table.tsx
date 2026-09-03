@@ -6,6 +6,8 @@ import { Flag } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
+import { RiskChip } from "@/components/customers/risk-meter";
+import type { RiskBand } from "@/generated/prisma/enums";
 
 export type CustomerRow = {
   id: string;
@@ -17,6 +19,8 @@ export type CustomerRow = {
   region: string;
   isFlagged: boolean;
   activeLoans: number;
+  riskScore: number;
+  riskBand: RiskBand;
 };
 
 const columns: ColumnDef<CustomerRow>[] = [
@@ -60,6 +64,13 @@ const columns: ColumnDef<CustomerRow>[] = [
     id: "location",
     header: "Location",
     cell: ({ row }) => `${row.original.city}, ${row.original.region}`,
+  },
+  {
+    accessorKey: "riskScore",
+    header: "Score",
+    cell: ({ row }) => (
+      <RiskChip score={row.original.riskScore} band={row.original.riskBand} />
+    ),
   },
   {
     accessorKey: "activeLoans",

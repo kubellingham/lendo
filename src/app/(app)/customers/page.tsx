@@ -9,19 +9,23 @@ import {
   CustomersTable,
   type CustomerRow,
 } from "@/components/customers/customers-table";
+import { RiskBand } from "@/generated/prisma/enums";
 
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; flagged?: string }>;
+  searchParams: Promise<{ q?: string; flagged?: string; risk?: string }>;
 }) {
   const user = await requireUser();
-  const { q, flagged } = await searchParams;
+  const { q, flagged, risk } = await searchParams;
   const canWrite = WRITE_ROLES.includes(user.role);
+  const riskFilter =
+    risk && risk in RiskBand ? (risk as keyof typeof RiskBand) : undefined;
 
   const customers = await db.customer.findMany({
     where: {
       ...(flagged === "1" ? { isFlagged: true } : {}),
+      ...(riskFilter ? { riskBand: riskFilter } : {}),
       ...(q
         ? {
             OR: [
@@ -48,6 +52,8 @@ export default async function CustomersPage({
     region: c.region,
     isFlagged: c.isFlagged,
     activeLoans: c.loans.filter((l) => l.status === "ACTIVE").length,
+    riskScore: c.riskScore,
+    riskBand: c.riskBand,
   }));
 
   return (

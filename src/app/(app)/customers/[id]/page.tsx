@@ -16,6 +16,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { LoanStatusBadge, FlagBadge } from "@/components/status";
 import { FlagControls } from "@/components/customers/flag-controls";
+import { RiskMeter } from "@/components/customers/risk-meter";
+import { recomputeCustomerRisk } from "@/lib/customer-risk";
 import { SendMessage } from "@/components/messaging/send-message";
 import { Avatar } from "@/components/ui/avatar";
 
@@ -36,6 +38,9 @@ export default async function CustomerProfilePage({
   const user = await requireUser();
   const { id } = await params;
   const canWrite = WRITE_ROLES.includes(user.role);
+
+  // Refresh the risk meter on view.
+  const credit = await recomputeCustomerRisk(id);
 
   const customer = await db.customer.findUnique({
     where: { id },
@@ -163,6 +168,7 @@ export default async function CustomerProfilePage({
         </div>
 
         <div className="space-y-6">
+          {credit ? <RiskMeter credit={credit} /> : null}
           {canWrite ? (
             <Card>
               <CardHeader>

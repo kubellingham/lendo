@@ -37,6 +37,14 @@ enum LoanStatus {
   WRITTEN_OFF
 }
 
+enum RiskBand {
+  EXCELLENT
+  GOOD
+  WATCH
+  HIGH_RISK
+  CRITICAL
+}
+
 enum InstallmentStatus {
   PENDING
   INTEREST_PAID
@@ -129,6 +137,12 @@ model Customer {
   referralRelationship String?
   isFlagged        Boolean      @default(false)
   flagReason       String?
+  // Rules-based risk meter (recomputed from repayment behaviour).
+  riskScore        Int          @default(100)
+  riskBand         RiskBand     @default(EXCELLENT)
+  riskWorstDaysLate Int         @default(0)
+  autoBlacklisted  Boolean      @default(false) // 90+ days / defaulted → blocks new loans
+  riskUpdatedAt    DateTime?
   createdById      String
   createdBy        User         @relation("CustomerCreatedBy", fields: [createdById], references: [id])
   createdAt        DateTime     @default(now())
@@ -142,6 +156,7 @@ model Customer {
   @@index([phone])
   @@index([isFlagged])
   @@index([referralId])
+  @@index([riskBand])
 }
 
 model Loan {
