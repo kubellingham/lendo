@@ -71,6 +71,9 @@ export default async function CustomerProfilePage({
             <SendMessage
               context={{ kind: "customer", customerId: customer.id }}
               triggerLabel="Message"
+              allowReferral={customer.loans.some(
+                (l) => l.status === "OVERDUE" || l.status === "DEFAULTED",
+              )}
             />
             {canWrite ? (
               <>

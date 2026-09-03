@@ -81,7 +81,26 @@ model User {
   loansIssued      Loan[]         @relation("LoanIssuedBy")
   paymentsRecorded Payment[]      @relation("PaymentRecordedBy")
   flagsCreated     CustomerFlag[] @relation("FlagCreatedBy")
+  referralsCreated Referral[]     @relation("ReferralCreatedBy")
   auditLogs        AuditLog[]     @relation("AuditActor")
+}
+
+// A reusable referral/referee contact — the person who vouches for a borrower.
+// One referral can be linked to many borrowers, so it's saved once and picked
+// again rather than re-typed.
+model Referral {
+  id           String     @id @default(cuid())
+  name         String
+  phone        String     @unique // E.164 — identifies the contact
+  relationship String?
+  notes        String?
+  createdById  String
+  createdBy    User       @relation("ReferralCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  customers    Customer[]
+
+  @@index([name])
 }
 
 model Customer {
@@ -101,7 +120,10 @@ model Customer {
   businessTin      String?
   notes            String?
   // Referral / referee who vouched for this borrower — messaged if the
-  // borrower falls behind on repayment.
+  // borrower falls behind on repayment. Linked to a saved Referral contact;
+  // the inline copies below are a fallback + kept in sync on save.
+  referralId           String?
+  referral             Referral?    @relation(fields: [referralId], references: [id])
   referralName         String?
   referralPhone        String? // E.164
   referralRelationship String?
@@ -119,6 +141,7 @@ model Customer {
   @@index([fullName])
   @@index([phone])
   @@index([isFlagged])
+  @@index([referralId])
 }
 
 model Loan {

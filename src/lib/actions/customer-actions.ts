@@ -25,6 +25,57 @@ function handleAuthError(err: unknown): ActionResult {
   throw err;
 }
 
+// Resolve the referral for a customer: link a saved one (referralId), or
+// find-or-create by phone from typed name+phone, or none. Returns the fields to
+// persist on the customer (referralId + the mirrored inline copies).
+async function resolveReferral(
+  d: CustomerInput,
+  userId: string,
+): Promise<{
+  referralId: string | null;
+  referralName: string | null;
+  referralPhone: string | null;
+  referralRelationship: string | null;
+}> {
+  const none = {
+    referralId: null,
+    referralName: null,
+    referralPhone: null,
+    referralRelationship: null,
+  };
+
+  const chosenId = emptyToNull(d.referralId);
+  if (chosenId) {
+    const r = await db.referral.findUnique({ where: { id: chosenId } });
+    if (r) {
+      return {
+        referralId: r.id,
+        referralName: r.name,
+        referralPhone: r.phone,
+        referralRelationship: r.relationship,
+      };
+    }
+  }
+
+  const name = emptyToNull(d.referralName);
+  const phone = emptyToNull(d.referralPhone);
+  const relationship = emptyToNull(d.referralRelationship);
+  if (name && phone) {
+    const r = await db.referral.upsert({
+      where: { phone },
+      update: { name, relationship },
+      create: { name, phone, relationship, createdById: userId },
+    });
+    return {
+      referralId: r.id,
+      referralName: r.name,
+      referralPhone: r.phone,
+      referralRelationship: r.relationship,
+    };
+  }
+  return none;
+}
+
 export async function createCustomer(
   input: CustomerInput,
   returnTo?: string,
@@ -46,6 +97,7 @@ export async function createCustomer(
       };
     }
     const d = parsed.data;
+    const ref = await resolveReferral(d, user.id);
 
     const customer = await db.customer.create({
       data: {
@@ -63,9 +115,10 @@ export async function createCustomer(
         employer: emptyToNull(d.employer),
         businessTin: emptyToNull(d.businessTin),
         notes: emptyToNull(d.notes),
-        referralName: emptyToNull(d.referralName),
-        referralPhone: emptyToNull(d.referralPhone),
-        referralRelationship: emptyToNull(d.referralRelationship),
+        referralId: ref.referralId,
+        referralName: ref.referralName,
+        referralPhone: ref.referralPhone,
+        referralRelationship: ref.referralRelationship,
         createdById: user.id,
       },
     });
@@ -127,6 +180,7 @@ export async function updateCustomer(
 
     const before = await db.customer.findUnique({ where: { id } });
     if (!before) return { ok: false, error: "Customer not found." };
+    const ref = await resolveReferral(d, user.id);
 
     const customer = await db.customer.update({
       where: { id },
@@ -145,9 +199,10 @@ export async function updateCustomer(
         employer: emptyToNull(d.employer),
         businessTin: emptyToNull(d.businessTin),
         notes: emptyToNull(d.notes),
-        referralName: emptyToNull(d.referralName),
-        referralPhone: emptyToNull(d.referralPhone),
-        referralRelationship: emptyToNull(d.referralRelationship),
+        referralId: ref.referralId,
+        referralName: ref.referralName,
+        referralPhone: ref.referralPhone,
+        referralRelationship: ref.referralRelationship,
       },
     });
 

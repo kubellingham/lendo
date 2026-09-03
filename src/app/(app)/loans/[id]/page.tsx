@@ -122,6 +122,9 @@ export default async function LoanDetailPage({
             </Button>
             <SendMessage
               context={{ kind: "loan", loanId: loan.id }}
+              allowReferral={
+                loan.status === "OVERDUE" || loan.status === "DEFAULTED"
+              }
               defaultTemplateKey={
                 loan.status === "SETTLED"
                   ? "loan_settled"

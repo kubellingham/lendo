@@ -35,12 +35,21 @@ function Field({
   );
 }
 
+export type ReferralOption = {
+  id: string;
+  name: string;
+  phone: string;
+  relationship: string | null;
+};
+
 export function CustomerForm({
   customerId,
   defaultValues,
+  referrals = [],
 }: {
   customerId?: string;
   defaultValues?: Partial<CustomerInput>;
+  referrals?: ReferralOption[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -70,6 +79,7 @@ export function CustomerForm({
       occupation: "",
       employer: "",
       notes: "",
+      referralId: "",
       referralName: "",
       referralPhone: "",
       referralRelationship: "",
@@ -184,21 +194,44 @@ export function CustomerForm({
           <div className="sm:col-span-2 mt-1 border-t pt-3 text-sm font-medium text-muted-foreground">
             Referral / referee (optional)
           </div>
-          <Field label="Referral name" error={errors.referralName?.message}>
-            <Input {...register("referralName")} placeholder="e.g. Violet Mushi" />
-          </Field>
-          <Field label="Referral phone" error={errors.referralPhone?.message}>
-            <Input {...register("referralPhone")} placeholder="+255…" />
-          </Field>
-          <Field
-            label="Relationship"
-            error={errors.referralRelationship?.message}
-          >
-            <Input
-              {...register("referralRelationship")}
-              placeholder="e.g. Aunt, employer, friend"
-            />
-          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Use a saved referral" error={errors.referralId?.message}>
+              <Select {...register("referralId")}>
+                <option value="">— None / add a new one below —</option>
+                {referrals.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name} · {r.phone}
+                    {r.relationship ? ` (${r.relationship})` : ""}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          {!watch("referralId") ? (
+            <>
+              <Field label="New referral name" error={errors.referralName?.message}>
+                <Input
+                  {...register("referralName")}
+                  placeholder="e.g. Violet Mushi"
+                />
+              </Field>
+              <Field
+                label="New referral phone"
+                error={errors.referralPhone?.message}
+              >
+                <Input {...register("referralPhone")} placeholder="+255…" />
+              </Field>
+              <Field
+                label="Relationship"
+                error={errors.referralRelationship?.message}
+              >
+                <Input
+                  {...register("referralRelationship")}
+                  placeholder="e.g. Aunt, employer, friend"
+                />
+              </Field>
+            </>
+          ) : null}
 
           <div className="sm:col-span-2">
             <Field label="Notes" error={errors.notes?.message}>

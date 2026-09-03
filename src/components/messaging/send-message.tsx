@@ -70,16 +70,23 @@ export function SendMessage({
   triggerVariant = "outline",
   triggerSize = "sm",
   defaultTemplateKey,
+  allowReferral = false,
 }: {
   context: Context;
   triggerLabel?: string;
   triggerVariant?: "default" | "outline" | "ghost" | "secondary";
   triggerSize?: "default" | "sm";
   defaultTemplateKey?: string;
+  // Referral notices only make sense when the borrower is behind — the caller
+  // passes true only when there's an overdue/defaulted loan to chase.
+  allowReferral?: boolean;
 }) {
-  const available = MESSAGE_TEMPLATES.filter((t) =>
-    CATEGORY_BY_KIND[context.kind].includes(t.category),
-  );
+  const available = MESSAGE_TEMPLATES.filter((t) => {
+    if (!CATEGORY_BY_KIND[context.kind].includes(t.category)) return false;
+    if ((t.category === "referral" || t.category === "referral_all") && !allowReferral)
+      return false;
+    return true;
+  });
 
   const [open, setOpen] = useState(false);
   const [key, setKey] = useState(defaultTemplateKey ?? available[0]?.key ?? "");

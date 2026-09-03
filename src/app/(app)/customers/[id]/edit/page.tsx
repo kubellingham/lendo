@@ -12,7 +12,13 @@ export default async function EditCustomerPage({
 }) {
   await requirePageRole(...WRITE_ROLES);
   const { id } = await params;
-  const customer = await db.customer.findUnique({ where: { id } });
+  const [customer, referrals] = await Promise.all([
+    db.customer.findUnique({ where: { id } }),
+    db.referral.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, phone: true, relationship: true },
+    }),
+  ]);
   if (!customer) notFound();
 
   const defaults: Partial<CustomerInput> = {
@@ -30,6 +36,7 @@ export default async function EditCustomerPage({
     employer: customer.employer ?? "",
     businessTin: customer.businessTin ?? "",
     notes: customer.notes ?? "",
+    referralId: customer.referralId ?? "",
     referralName: customer.referralName ?? "",
     referralPhone: customer.referralPhone ?? "",
     referralRelationship: customer.referralRelationship ?? "",
@@ -41,7 +48,11 @@ export default async function EditCustomerPage({
         title={`Edit ${customer.fullName}`}
         description="Update borrower details."
       />
-      <CustomerForm customerId={customer.id} defaultValues={defaults} />
+      <CustomerForm
+        customerId={customer.id}
+        defaultValues={defaults}
+        referrals={referrals}
+      />
     </>
   );
 }

@@ -55,6 +55,36 @@ async function main() {
   });
   console.log("✔ Default settings ready");
 
+  // Backfill saved Referral contacts from any inline referral data on
+  // customers (from before referrals became reusable records).
+  const withInline = await db.customer.findMany({
+    where: { referralId: null, referralPhone: { not: null } },
+    select: {
+      id: true,
+      referralName: true,
+      referralPhone: true,
+      referralRelationship: true,
+      createdById: true,
+    },
+  });
+  let linked = 0;
+  for (const c of withInline) {
+    if (!c.referralPhone) continue;
+    const r = await db.referral.upsert({
+      where: { phone: c.referralPhone },
+      update: {},
+      create: {
+        name: c.referralName ?? "Referral",
+        phone: c.referralPhone,
+        relationship: c.referralRelationship ?? null,
+        createdById: c.createdById,
+      },
+    });
+    await db.customer.update({ where: { id: c.id }, data: { referralId: r.id } });
+    linked++;
+  }
+  if (linked > 0) console.log(`✔ Linked ${linked} customer(s) to saved referrals`);
+
   console.log("\nSeed complete. Login with:");
   console.log(`  email:    ${email}`);
   console.log(`  password: ${password}`);

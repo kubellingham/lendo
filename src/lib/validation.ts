@@ -43,6 +43,7 @@ export const customerSchema = z
     employer: optionalText,
     businessTin: optionalText,
     notes: optionalText,
+    referralId: optionalText,
     referralName: optionalText,
     referralPhone: optionalPhone,
     referralRelationship: optionalText,

@@ -9,6 +9,7 @@ import {
   Receipt,
   BarChart3,
   HandCoins,
+  Contact,
   Landmark,
   Settings,
 } from "lucide-react";
@@ -25,6 +26,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/customers", label: "Customers", icon: Users },
+  { href: "/referrals", label: "Referrals", icon: Contact },
   { href: "/loans", label: "Loans", icon: Banknote },
   { href: "/payments", label: "Payments", icon: Receipt },
   { href: "/reports", label: "Reports", icon: BarChart3 },
