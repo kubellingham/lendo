@@ -38,7 +38,14 @@ export async function GET(
   const loan = await db.loan.findUnique({
     where: { id: loanId },
     include: {
-      customer: { select: { fullName: true, phone: true } },
+      customer: {
+        select: {
+          fullName: true,
+          phone: true,
+          referralName: true,
+          referralPhone: true,
+        },
+      },
       issuedBy: { select: { name: true } },
       installments: { orderBy: { cycleNumber: "asc" } },
       payments: {
@@ -160,6 +167,36 @@ export async function GET(
         footerNote:
           "Your loan has been approved. Disbursal will be processed shortly.",
         tagline: REPAY_TAGLINE,
+      };
+      break;
+    }
+    case "referral_overdue": {
+      // Addressed to the referral (referee), about the borrower's loan.
+      const summary: ReceiptRow[] = [
+        { label: "Borrower", value: loan.customer.fullName },
+        { label: "Loan reference", value: loanRef(loan.id) },
+        { label: "Original amount", value: tsh(loan.principal) },
+        { label: "Was due", value: formatDate(dueDateSource) },
+        { label: "Days overdue", value: String(daysOverdue) },
+        {
+          label: "Amount outstanding",
+          value: tsh(state.settlementAmountNow),
+          strong: true,
+        },
+      ];
+      doc = {
+        ...base,
+        docTitle: "REFERRAL NOTICE",
+        customerName: loan.customer.referralName || "Referral",
+        customerPhone: loan.customer.referralPhone || "—",
+        summary,
+        highlight: {
+          label: "Amount outstanding",
+          value: tsh(state.settlementAmountNow),
+        },
+        footerNote:
+          "Kindly remind your referral to clear the outstanding amount as soon as possible.",
+        tagline: FORWARD_TAGLINE,
       };
       break;
     }

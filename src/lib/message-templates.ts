@@ -4,7 +4,12 @@
 // wa.me with it pre-filled), so tone matters as much as accuracy: warm,
 // respectful, concise, unmistakably Lendo.
 
-export type MessageCategory = "loan" | "payment" | "customer" | "referral";
+export type MessageCategory =
+  | "loan"
+  | "payment"
+  | "customer"
+  | "referral" // per-loan referral notice (loan context)
+  | "referral_all"; // consolidated referral notice (customer context)
 
 export type MessageTemplate = {
   key: string;
@@ -270,6 +275,20 @@ Thank you for your cooperation and continued support.
 Regards,
 The Lendo Team
 _Helping you move forward._`,
+  },
+
+  // -------------------------------------------------------------------
+  // 12. Referral — All overdue loans (consolidated). One message to the
+  //     referral covering every overdue/defaulted loan + the total owed.
+  //     The body is generated in code from the borrower's live loans.
+  // -------------------------------------------------------------------
+  {
+    key: "referral_overdue_all",
+    category: "referral_all",
+    label: "Referral — all overdue loans (total)",
+    description:
+      "One message to the referral covering every overdue/defaulted loan and the total owed.",
+    body: `Dear {{referralName}}, your referral {{customerName}} has overdue loans with Lendo. (This message is filled in automatically with each loan and the total.)`,
   },
 ];
 

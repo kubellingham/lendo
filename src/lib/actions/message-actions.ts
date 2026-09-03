@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/rbac";
 import { computeLoanState } from "@/lib/loan-calc";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { getTemplate, renderMessage } from "@/lib/message-templates";
+import { getReferralOverdue, buildReferralMessage } from "@/lib/referral";
 
 export type MessagePreview = {
   ok: true;
@@ -223,6 +224,33 @@ export async function previewCustomerMessage(
     await requireUser();
     const template = getTemplate(templateKey);
     if (!template) return { ok: false, error: "Unknown template." };
+
+    // Consolidated referral notice: one message covering every overdue /
+    // defaulted loan for this borrower, sent to the referral.
+    if (templateKey === "referral_overdue_all") {
+      const summary = await getReferralOverdue(customerId);
+      if (!summary) return { ok: false, error: "Customer not found." };
+      if (!summary.referralPhone) {
+        return {
+          ok: false,
+          error:
+            "No referral is on file for this customer. Add a referral (name + phone) on the customer profile first.",
+        };
+      }
+      if (summary.loans.length === 0) {
+        return {
+          ok: false,
+          error: `${summary.borrowerName} has no overdue or defaulted loans right now.`,
+        };
+      }
+      return {
+        ok: true,
+        message: buildReferralMessage(summary),
+        customerName: summary.referralName || "Referral",
+        phoneE164: summary.referralPhone,
+        loanRef: null,
+      };
+    }
 
     const customer = await db.customer.findUnique({
       where: { id: customerId },

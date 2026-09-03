@@ -37,7 +37,7 @@ type Context =
 const CATEGORY_BY_KIND: Record<Context["kind"], MessageCategory[]> = {
   loan: ["loan", "referral"],
   payment: ["payment"],
-  customer: ["customer"],
+  customer: ["customer", "referral_all"],
 };
 
 function waLink(phoneE164: string, text: string): string {
@@ -52,12 +52,14 @@ function pdfHref(context: Context, key: string): string | null {
     return `/api/receipts/payment/${context.paymentId}`;
   }
   if (context.kind === "loan") {
-    // Referral notices are a plain text message to a third party — no PDF.
-    if (key === "referral_overdue") return null;
     if (key === "loan_disbursed") {
       return `/api/receipts/disbursement/${context.loanId}`;
     }
+    // referral_overdue also routes here (notices/loan handles the type).
     return `/api/notices/loan/${context.loanId}?type=${encodeURIComponent(key)}`;
+  }
+  if (context.kind === "customer" && key === "referral_overdue_all") {
+    return `/api/notices/referral/${context.customerId}`;
   }
   return null;
 }
