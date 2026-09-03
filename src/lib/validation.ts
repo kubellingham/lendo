@@ -43,6 +43,9 @@ export const customerSchema = z
     employer: optionalText,
     businessTin: optionalText,
     notes: optionalText,
+    referralName: optionalText,
+    referralPhone: optionalPhone,
+    referralRelationship: optionalText,
   })
   .refine(
     (d) => d.type !== CustomerType.BUSINESS || !!d.businessName?.trim(),

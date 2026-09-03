@@ -4,7 +4,7 @@
 // wa.me with it pre-filled), so tone matters as much as accuracy: warm,
 // respectful, concise, unmistakably Lendo.
 
-export type MessageCategory = "loan" | "payment" | "customer";
+export type MessageCategory = "loan" | "payment" | "customer" | "referral";
 
 export type MessageTemplate = {
   key: string;
@@ -247,6 +247,29 @@ Please keep this receipt for your records. If anything looks off, reply to this 
 
 — Lendo
 _Borrow with confidence. Repay with ease._`,
+  },
+
+  // -------------------------------------------------------------------
+  // 11. Referral — Overdue Notice (sent to the referral/referee, not the
+  //     borrower). Addressed to the person who vouched for the borrower.
+  // -------------------------------------------------------------------
+  {
+    key: "referral_overdue",
+    category: "referral",
+    label: "Referral — overdue notice",
+    description:
+      "Sent to the borrower's referral/referee when the loan is overdue.",
+    body: `Dear {{referralName}},
+
+Your referral, *{{customerName}}*, has an outstanding loan with Lendo. The loan, amounting to TSh {{principal}}, was due to be fully repaid by {{dueDate}}. It is currently *{{daysOverdue}} day(s)* overdue, with a total of TSh {{totalDue}} still outstanding.
+
+Please kindly remind them to clear the outstanding amount as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
+
+Thank you for your cooperation and continued support.
+
+Regards,
+The Lendo Team
+_Helping you move forward._`,
   },
 ];
 

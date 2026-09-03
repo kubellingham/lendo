@@ -63,6 +63,9 @@ export async function createCustomer(
         employer: emptyToNull(d.employer),
         businessTin: emptyToNull(d.businessTin),
         notes: emptyToNull(d.notes),
+        referralName: emptyToNull(d.referralName),
+        referralPhone: emptyToNull(d.referralPhone),
+        referralRelationship: emptyToNull(d.referralRelationship),
         createdById: user.id,
       },
     });
@@ -142,6 +145,9 @@ export async function updateCustomer(
         employer: emptyToNull(d.employer),
         businessTin: emptyToNull(d.businessTin),
         notes: emptyToNull(d.notes),
+        referralName: emptyToNull(d.referralName),
+        referralPhone: emptyToNull(d.referralPhone),
+        referralRelationship: emptyToNull(d.referralRelationship),
       },
     });
 

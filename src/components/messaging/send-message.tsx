@@ -35,7 +35,7 @@ type Context =
   | { kind: "customer"; customerId: string };
 
 const CATEGORY_BY_KIND: Record<Context["kind"], MessageCategory[]> = {
-  loan: ["loan"],
+  loan: ["loan", "referral"],
   payment: ["payment"],
   customer: ["customer"],
 };
@@ -52,6 +52,8 @@ function pdfHref(context: Context, key: string): string | null {
     return `/api/receipts/payment/${context.paymentId}`;
   }
   if (context.kind === "loan") {
+    // Referral notices are a plain text message to a third party — no PDF.
+    if (key === "referral_overdue") return null;
     if (key === "loan_disbursed") {
       return `/api/receipts/disbursement/${context.loanId}`;
     }

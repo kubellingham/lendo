@@ -30,6 +30,9 @@ export default async function EditCustomerPage({
     employer: customer.employer ?? "",
     businessTin: customer.businessTin ?? "",
     notes: customer.notes ?? "",
+    referralName: customer.referralName ?? "",
+    referralPhone: customer.referralPhone ?? "",
+    referralRelationship: customer.referralRelationship ?? "",
   };
 
   return (

@@ -45,7 +45,12 @@ export async function previewLoanMessage(
       where: { id: loanId },
       include: {
         customer: {
-          select: { fullName: true, phone: true },
+          select: {
+            fullName: true,
+            phone: true,
+            referralName: true,
+            referralPhone: true,
+          },
         },
         installments: { orderBy: { cycleNumber: "asc" } },
         payments: {
@@ -83,8 +88,20 @@ export async function previewLoanMessage(
     const lastPayment = loan.payments[0];
     const totalRepaid = state.totalCollected;
 
+    // Referral notices go to the referee, not the borrower — so they need a
+    // referral on file.
+    const isReferral = template.category === "referral";
+    if (isReferral && !loan.customer.referralPhone) {
+      return {
+        ok: false,
+        error:
+          "No referral is on file for this customer. Add a referral (name + phone) on the customer profile first.",
+      };
+    }
+
     const message = renderMessage(template.body, {
       customerName: loan.customer.fullName,
+      referralName: loan.customer.referralName || "referrer",
       loanRef: loanRef(loan.id),
       principal: tsh(loan.principal),
       interest: tsh(interestForCurrent),
@@ -101,8 +118,12 @@ export async function previewLoanMessage(
     return {
       ok: true,
       message,
-      customerName: loan.customer.fullName,
-      phoneE164: loan.customer.phone,
+      customerName: isReferral
+        ? loan.customer.referralName || "Referral"
+        : loan.customer.fullName,
+      phoneE164: isReferral
+        ? loan.customer.referralPhone ?? ""
+        : loan.customer.phone,
       loanRef: loanRef(loan.id),
     };
   } catch (err) {

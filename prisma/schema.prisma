@@ -100,6 +100,11 @@ model Customer {
   employer         String?
   businessTin      String?
   notes            String?
+  // Referral / referee who vouched for this borrower — messaged if the
+  // borrower falls behind on repayment.
+  referralName         String?
+  referralPhone        String? // E.164
+  referralRelationship String?
   isFlagged        Boolean      @default(false)
   flagReason       String?
   createdById      String

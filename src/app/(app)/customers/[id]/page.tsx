@@ -110,6 +110,15 @@ export default async function CustomerProfilePage({
                   label="Location"
                   value={`${customer.city}, ${customer.region}`}
                 />
+                <Detail
+                  label="Referral"
+                  value={
+                    customer.referralName
+                      ? `${customer.referralName}${customer.referralRelationship ? ` (${customer.referralRelationship})` : ""}`
+                      : null
+                  }
+                />
+                <Detail label="Referral phone" value={customer.referralPhone} />
               </dl>
               {customer.notes ? (
                 <div className="mt-4 rounded-md bg-muted p-3 text-sm">

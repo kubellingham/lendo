@@ -70,6 +70,9 @@ export function CustomerForm({
       occupation: "",
       employer: "",
       notes: "",
+      referralName: "",
+      referralPhone: "",
+      referralRelationship: "",
       ...defaultValues,
     },
   });
@@ -177,6 +180,26 @@ export function CustomerForm({
           <Field label="Region" error={errors.region?.message}>
             <Input {...register("region")} />
           </Field>
+
+          <div className="sm:col-span-2 mt-1 border-t pt-3 text-sm font-medium text-muted-foreground">
+            Referral / referee (optional)
+          </div>
+          <Field label="Referral name" error={errors.referralName?.message}>
+            <Input {...register("referralName")} placeholder="e.g. Violet Mushi" />
+          </Field>
+          <Field label="Referral phone" error={errors.referralPhone?.message}>
+            <Input {...register("referralPhone")} placeholder="+255…" />
+          </Field>
+          <Field
+            label="Relationship"
+            error={errors.referralRelationship?.message}
+          >
+            <Input
+              {...register("referralRelationship")}
+              placeholder="e.g. Aunt, employer, friend"
+            />
+          </Field>
+
           <div className="sm:col-span-2">
             <Field label="Notes" error={errors.notes?.message}>
               <Textarea {...register("notes")} rows={3} />
