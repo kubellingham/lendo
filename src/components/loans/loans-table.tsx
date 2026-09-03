@@ -10,24 +10,39 @@ export type LoanRow = {
   id: string;
   customerName: string;
   principal: string; // formatted TZS
+  principalNum: number; // raw, for sorting
   status: LoanStatus;
   disbursedAt: string;
+  disbursedAtMs: number;
   dueAt: string;
+  dueAtMs: number;
   officer: string;
   outstanding: string; // formatted TZS
+  outstandingNum: number;
 };
+
+// Sort by a raw numeric/temporal field on the row while the cell shows the
+// formatted string.
+const byField =
+  (key: keyof LoanRow) =>
+  (a: { original: LoanRow }, b: { original: LoanRow }) =>
+    (a.original[key] as number) - (b.original[key] as number);
 
 const columns: ColumnDef<LoanRow>[] = [
   { accessorKey: "customerName", header: "Customer" },
-  { accessorKey: "principal", header: "Principal" },
-  { accessorKey: "outstanding", header: "Outstanding" },
+  { accessorKey: "principal", header: "Principal", sortingFn: byField("principalNum") },
+  {
+    accessorKey: "outstanding",
+    header: "Outstanding",
+    sortingFn: byField("outstandingNum"),
+  },
   {
     accessorKey: "status",
     header: "Status",
     cell: ({ row }) => <LoanStatusBadge status={row.original.status} />,
   },
-  { accessorKey: "disbursedAt", header: "Disbursed" },
-  { accessorKey: "dueAt", header: "Due" },
+  { accessorKey: "disbursedAt", header: "Disbursed", sortingFn: byField("disbursedAtMs") },
+  { accessorKey: "dueAt", header: "Due", sortingFn: byField("dueAtMs") },
   { accessorKey: "officer", header: "Officer" },
 ];
 

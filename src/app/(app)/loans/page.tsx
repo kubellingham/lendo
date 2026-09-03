@@ -90,10 +90,14 @@ export default async function LoansPage({
       id: loan.id,
       customerName: loan.customer.fullName,
       principal: formatTZS(loan.principal.toString()),
+      principalNum: Number(loan.principal),
       outstanding: formatTZS(state.principalOutstanding),
+      outstandingNum: Number(state.principalOutstanding.toString()),
       status: effectiveStatus,
       disbursedAt: formatDate(loan.disbursedAt),
+      disbursedAtMs: loan.disbursedAt.getTime(),
       dueAt: formatDate(loan.dueAt),
+      dueAtMs: loan.dueAt.getTime(),
       officer: loan.issuedBy.name,
     }));
 
