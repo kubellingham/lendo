@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { LoanStatusBadge } from "@/components/status";
+import { ReportDownload } from "@/components/reports/report-download";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -205,6 +206,20 @@ export default async function ReportsPage({
           </Button>
         }
       />
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Board report (PDF)</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-3 text-sm text-muted-foreground">
+            A presentation-ready portfolio report for a month, quarter, or year —
+            KPIs with period-over-period deltas, trend and portfolio-health
+            charts, and the cash-pool &amp; tithes summary.
+          </p>
+          <ReportDownload />
+        </CardContent>
+      </Card>
 
       <form className="mb-4 flex flex-wrap items-end gap-3">
         <div className="space-y-1">
