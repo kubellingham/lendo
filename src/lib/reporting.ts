@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { money, round2 } from "@/lib/money";
 import { getTitheRatePct } from "@/lib/settings";
+import { formatDate, nowInTz } from "@/lib/dates";
 import type { RiskBand } from "@/generated/prisma/enums";
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,15 @@ type LoanFull = {
   cyclesAllowed: number;
   disbursedAt: Date;
   dueAt: Date;
+  customer: {
+    id: string;
+    fullName: string;
+    phone: string;
+    riskScore: number;
+    riskBand: RiskBand;
+    referralName: string | null;
+    referralPhone: string | null;
+  };
   installments: {
     id: string;
     cycleNumber: number;
@@ -88,9 +98,15 @@ type LoanFull = {
     installmentId: string | null;
     paidAt: Date;
     createdAt: Date;
+    method: string;
+    recordedBy: { name: string } | null;
     installment: { dueDate: Date } | null;
   }[];
 };
+
+export function loanRef(id: string): string {
+  return "LND-" + id.slice(-6).toUpperCase();
+}
 
 /** Interest portion of each payment (interest is covered before principal). */
 function attributeInterest(loan: LoanFull): Map<string, Decimal> {
@@ -161,6 +177,63 @@ export type ReportData = {
     cashOnHand: Decimal; // cumulative at end
   };
   tithes: { interest: Decimal; ratePct: number; tithe: Decimal };
+  detail: DetailData;
+};
+
+export type DetailData = {
+  methodBreakdown: { method: string; count: number; amount: Decimal }[];
+  paymentsLog: {
+    date: string;
+    customer: string;
+    loanRef: string;
+    amount: Decimal;
+    method: string;
+    timing: string; // "On time" | "N late" | "—"
+    recordedBy: string;
+  }[];
+  loanRegister: {
+    ref: string;
+    customer: string;
+    principal: Decimal;
+    disbursed: string;
+    due: string;
+    rate: string;
+    status: string;
+    collected: Decimal;
+    outstanding: Decimal;
+    daysLate: number;
+  }[];
+  newLoans: {
+    ref: string;
+    customer: string;
+    principal: Decimal;
+    disbursed: string;
+    due: string;
+  }[];
+  roster: {
+    name: string;
+    phone: string;
+    riskScore: number;
+    riskBand: RiskBand;
+    loanCount: number;
+    borrowed: Decimal;
+    outstanding: Decimal;
+  }[];
+  watchlist: {
+    ref: string;
+    customer: string;
+    phone: string;
+    daysLate: number;
+    outstanding: Decimal;
+    referral: string;
+  }[];
+  collections: {
+    ref: string;
+    customer: string;
+    interest: Decimal;
+    principal: Decimal;
+    total: Decimal;
+  }[];
 };
 
 const AGING_BUCKETS: { label: string; min: number; max: number | null }[] = [
@@ -181,6 +254,17 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
     await Promise.all([
       db.loan.findMany({
         include: {
+          customer: {
+            select: {
+              id: true,
+              fullName: true,
+              phone: true,
+              riskScore: true,
+              riskBand: true,
+              referralName: true,
+              referralPhone: true,
+            },
+          },
           installments: { orderBy: { cycleNumber: "asc" } },
           payments: {
             select: {
@@ -189,6 +273,8 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
               installmentId: true,
               paidAt: true,
               createdAt: true,
+              method: true,
+              recordedBy: { select: { name: true } },
               installment: { select: { dueDate: true } },
             },
           },
@@ -394,6 +480,8 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
     .plus(capitalRepaidPeriod)
     .plus(tithesInPeriod);
 
+  const detail = buildDetail(loans, interestByPayment, start, end);
+
   return {
     label,
     prevLabel: prevRange.label,
@@ -404,6 +492,7 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
     trend,
     aging,
     risk,
+    detail,
     cashPool: {
       periodIn: round2(periodIn),
       periodOut: round2(periodOut),
@@ -422,4 +511,203 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
 
 function monthKey(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function stateAsOf(loan: LoanFull, asOf: Date) {
+  return computeLoanState({
+    principal: loan.principal,
+    status: "ACTIVE",
+    interestRatePct: loan.interestRatePct,
+    installments: loan.installments,
+    payments: loan.payments
+      .filter((p) => p.paidAt < asOf)
+      .map((p) => ({ amount: p.amount, installmentId: p.installmentId })),
+  });
+}
+
+function buildDetail(
+  loans: LoanFull[],
+  interestByPayment: Map<string, Decimal>,
+  start: Date,
+  end: Date,
+): DetailData {
+  const now = nowInTz();
+  const asOf = end.getTime() < now.getTime() ? end : now;
+  const inPeriod = (d: Date) => d >= start && d < end;
+
+  // Method breakdown + payments log.
+  const methodMap = new Map<string, { count: number; amount: Decimal }>();
+  const paymentsLog: DetailData["paymentsLog"] = [];
+  for (const loan of loans) {
+    for (const p of loan.payments) {
+      if (!inPeriod(p.paidAt)) continue;
+      const m = methodMap.get(p.method) ?? { count: 0, amount: money(0) };
+      m.count++;
+      m.amount = m.amount.plus(money(p.amount));
+      methodMap.set(p.method, m);
+
+      let timing = "—";
+      if (p.installment) {
+        const diff = Math.round(
+          (Date.UTC(
+            p.paidAt.getUTCFullYear(),
+            p.paidAt.getUTCMonth(),
+            p.paidAt.getUTCDate(),
+          ) -
+            Date.UTC(
+              p.installment.dueDate.getUTCFullYear(),
+              p.installment.dueDate.getUTCMonth(),
+              p.installment.dueDate.getUTCDate(),
+            )) /
+            DAY,
+        );
+        timing = diff <= 0 ? "On time" : `${diff}d late`;
+      }
+      paymentsLog.push({
+        date: formatDate(p.paidAt),
+        customer: loan.customer.fullName,
+        loanRef: loanRef(loan.id),
+        amount: money(p.amount),
+        method: p.method,
+        timing,
+        recordedBy: p.recordedBy?.name ?? "—",
+      });
+    }
+  }
+  paymentsLog.sort((a, b) => (a.date < b.date ? 1 : -1));
+  const methodBreakdown = [...methodMap.entries()]
+    .map(([method, v]) => ({ method, count: v.count, amount: round2(v.amount) }))
+    .sort((a, b) => b.amount.comparedTo(a.amount));
+
+  // Loan register + new loans + collections + watchlist, over in-scope loans.
+  const register: DetailData["loanRegister"] = [];
+  const newLoans: DetailData["newLoans"] = [];
+  const collections: DetailData["collections"] = [];
+  const watchlist: DetailData["watchlist"] = [];
+  const rosterMap = new Map<
+    string,
+    {
+      name: string;
+      phone: string;
+      riskScore: number;
+      riskBand: RiskBand;
+      loanCount: number;
+      borrowed: Decimal;
+      outstanding: Decimal;
+    }
+  >();
+
+  for (const loan of loans) {
+    if (loan.disbursedAt >= end) continue; // not issued yet
+    const st = stateAsOf(loan, asOf);
+    const outstanding = st.principalOutstanding;
+    const hasPaymentInPeriod = loan.payments.some((p) => inPeriod(p.paidAt));
+    const disbursedInPeriod = inPeriod(loan.disbursedAt);
+    const inScope =
+      disbursedInPeriod || hasPaymentInPeriod || outstanding.gt(0);
+    if (!inScope) continue;
+
+    const daysLate =
+      asOf > loan.dueAt
+        ? Math.floor((asOf.getTime() - loan.dueAt.getTime()) / DAY)
+        : 0;
+    const status = outstanding.lte(0)
+      ? "Settled"
+      : daysLate > 0
+        ? "Overdue"
+        : "Active";
+    const collectedAsOf = loan.payments
+      .filter((p) => p.paidAt < asOf)
+      .reduce((a, p) => a.plus(money(p.amount)), money(0));
+
+    register.push({
+      ref: loanRef(loan.id),
+      customer: loan.customer.fullName,
+      principal: money(loan.principal),
+      disbursed: formatDate(loan.disbursedAt),
+      due: formatDate(loan.dueAt),
+      rate: `${loan.interestRatePct}%`,
+      status,
+      collected: round2(collectedAsOf),
+      outstanding: round2(outstanding),
+      daysLate,
+    });
+
+    if (disbursedInPeriod) {
+      newLoans.push({
+        ref: loanRef(loan.id),
+        customer: loan.customer.fullName,
+        principal: money(loan.principal),
+        disbursed: formatDate(loan.disbursedAt),
+        due: formatDate(loan.dueAt),
+      });
+    }
+
+    if (outstanding.gt(0) && daysLate > 0) {
+      const referral = loan.customer.referralName
+        ? `${loan.customer.referralName}${loan.customer.referralPhone ? ` · ${loan.customer.referralPhone}` : ""}`
+        : "—";
+      watchlist.push({
+        ref: loanRef(loan.id),
+        customer: loan.customer.fullName,
+        phone: loan.customer.phone,
+        daysLate,
+        outstanding: round2(st.settlementAmountNow),
+        referral,
+      });
+    }
+
+    // Interest vs principal collected in the period.
+    let interestInPeriod = money(0);
+    let totalInPeriod = money(0);
+    for (const p of loan.payments) {
+      if (!inPeriod(p.paidAt)) continue;
+      totalInPeriod = totalInPeriod.plus(money(p.amount));
+      interestInPeriod = interestInPeriod.plus(
+        interestByPayment.get(p.id) ?? money(0),
+      );
+    }
+    if (totalInPeriod.gt(0)) {
+      collections.push({
+        ref: loanRef(loan.id),
+        customer: loan.customer.fullName,
+        interest: round2(interestInPeriod),
+        principal: round2(totalInPeriod.minus(interestInPeriod)),
+        total: round2(totalInPeriod),
+      });
+    }
+
+    // Roster aggregation.
+    const c = loan.customer;
+    const r = rosterMap.get(c.id) ?? {
+      name: c.fullName,
+      phone: c.phone,
+      riskScore: c.riskScore,
+      riskBand: c.riskBand,
+      loanCount: 0,
+      borrowed: money(0),
+      outstanding: money(0),
+    };
+    r.loanCount++;
+    r.borrowed = r.borrowed.plus(money(loan.principal));
+    r.outstanding = r.outstanding.plus(outstanding.gt(0) ? outstanding : money(0));
+    rosterMap.set(c.id, r);
+  }
+
+  register.sort((a, b) => b.outstanding.comparedTo(a.outstanding));
+  collections.sort((a, b) => b.interest.comparedTo(a.interest));
+  watchlist.sort((a, b) => b.daysLate - a.daysLate);
+  const roster = [...rosterMap.values()]
+    .map((r) => ({ ...r, borrowed: round2(r.borrowed), outstanding: round2(r.outstanding) }))
+    .sort((a, b) => b.outstanding.comparedTo(a.outstanding));
+
+  return {
+    methodBreakdown,
+    paymentsLog,
+    loanRegister: register,
+    newLoans,
+    roster,
+    watchlist,
+    collections,
+  };
 }

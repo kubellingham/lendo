@@ -207,6 +207,78 @@ function kvRow(ctx: Ctx, label: string, value: string, strong = false) {
   ctx.y -= strong ? 20 : 16;
 }
 
+type Col = { label: string; width: number; right?: boolean };
+
+function fitText(font: PDFFont, text: string, width: number, size: number): string {
+  if (font.widthOfTextAtSize(text, size) <= width - 8) return text;
+  let t = text;
+  while (t.length > 1 && font.widthOfTextAtSize(t + "…", size) > width - 8) {
+    t = t.slice(0, -1);
+  }
+  return t + "…";
+}
+
+function drawTable(ctx: Ctx, title: string, columns: Col[], rows: string[][]) {
+  sectionTitle(ctx, title);
+  const totalW = columns.reduce((a, c) => a + c.width, 0);
+
+  const header = () => {
+    ctx.page.drawRectangle({
+      x: M,
+      y: ctx.y - 5,
+      width: totalW,
+      height: 18,
+      color: rgb(0.96, 0.97, 0.98),
+    });
+    let cx = M;
+    for (const c of columns) {
+      const w = ctx.bold.widthOfTextAtSize(c.label, 8);
+      const tx = c.right ? cx + c.width - 6 - w : cx + 6;
+      ctx.page.drawText(c.label, { x: tx, y: ctx.y, size: 8, font: ctx.bold, color: MUTED });
+      cx += c.width;
+    }
+    ctx.y -= 22;
+  };
+
+  header();
+  if (rows.length === 0) {
+    ctx.page.drawText("None in this period.", {
+      x: M + 6,
+      y: ctx.y,
+      size: 9,
+      font: ctx.font,
+      color: MUTED,
+    });
+    ctx.y -= 18;
+    return;
+  }
+  for (const row of rows) {
+    if (ctx.y < 56) {
+      newPage(ctx);
+      ctx.y -= 4;
+      header();
+    }
+    let cx = M;
+    row.forEach((cell, i) => {
+      const c = columns[i];
+      const size = 8.5;
+      const text = fitText(ctx.font, cell ?? "", c.width, size);
+      const tx = c.right ? cx + c.width - 6 - ctx.font.widthOfTextAtSize(text, size) : cx + 6;
+      ctx.page.drawText(text, { x: tx, y: ctx.y, size, font: ctx.font, color: INK });
+      cx += c.width;
+    });
+    ctx.y -= 6;
+    ctx.page.drawLine({
+      start: { x: M, y: ctx.y },
+      end: { x: M + totalW, y: ctx.y },
+      thickness: 0.4,
+      color: LINE,
+    });
+    ctx.y -= 12;
+  }
+  ctx.y -= 10;
+}
+
 export async function buildReportPdf(d: ReportData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(`Lendo Portfolio Report — ${d.label}`);
@@ -329,6 +401,166 @@ export async function buildReportPdf(d: ReportData): Promise<Uint8Array> {
   kvRow(ctx, `Tithe (${d.tithes.ratePct}% of interest)`, tzs(d.tithes.tithe.toString()));
   ctx.y -= 4;
   kvRow(ctx, "Cash on hand (cumulative, at period end)", tzs(d.cashPool.cashOnHand.toString()), true);
+
+  // -------------------------------------------------------------------
+  // Part B — detailed breakdown (flat tables).
+  // -------------------------------------------------------------------
+  const dt = d.detail;
+  newPage(ctx);
+  ctx.page.drawText(`Detailed breakdown — ${d.label}`, {
+    x: M,
+    y: ctx.y,
+    size: 15,
+    font: bold,
+    color: INK,
+  });
+  ctx.y -= 26;
+
+  // How they paid.
+  drawTable(
+    ctx,
+    "How they paid — by method",
+    [
+      { label: "Method", width: 220 },
+      { label: "Payments", width: 130, right: true },
+      { label: "Amount", width: 165, right: true },
+    ],
+    dt.methodBreakdown.map((m) => [m.method, String(m.count), tzs(m.amount.toString())]),
+  );
+
+  drawTable(
+    ctx,
+    "Payments log",
+    [
+      { label: "Date", width: 70 },
+      { label: "Customer", width: 120 },
+      { label: "Loan", width: 70 },
+      { label: "Amount", width: 75, right: true },
+      { label: "Method", width: 55 },
+      { label: "Timing", width: 60 },
+      { label: "By", width: 65 },
+    ],
+    dt.paymentsLog.map((p) => [
+      p.date,
+      p.customer,
+      p.loanRef,
+      tzs(p.amount.toString()),
+      p.method,
+      p.timing,
+      p.recordedBy,
+    ]),
+  );
+
+  // Loan register.
+  drawTable(
+    ctx,
+    "Loan register (active in period)",
+    [
+      { label: "Loan", width: 62 },
+      { label: "Customer", width: 100 },
+      { label: "Principal", width: 68, right: true },
+      { label: "Disbursed", width: 62 },
+      { label: "Due", width: 62 },
+      { label: "Status", width: 46 },
+      { label: "Outstanding", width: 68, right: true },
+      { label: "Late", width: 34, right: true },
+    ],
+    dt.loanRegister.map((l) => [
+      l.ref,
+      l.customer,
+      tzs(l.principal.toString()),
+      l.disbursed,
+      l.due,
+      l.status,
+      tzs(l.outstanding.toString()),
+      l.daysLate > 0 ? `${l.daysLate}d` : "—",
+    ]),
+  );
+
+  drawTable(
+    ctx,
+    "New loans issued in period",
+    [
+      { label: "Loan", width: 70 },
+      { label: "Customer", width: 165 },
+      { label: "Principal", width: 100, right: true },
+      { label: "Disbursed", width: 90 },
+      { label: "Due", width: 90 },
+    ],
+    dt.newLoans.map((l) => [
+      l.ref,
+      l.customer,
+      tzs(l.principal.toString()),
+      l.disbursed,
+      l.due,
+    ]),
+  );
+
+  // Customer roster.
+  drawTable(
+    ctx,
+    "Customer roster (active in period)",
+    [
+      { label: "Customer", width: 105 },
+      { label: "Phone", width: 95 },
+      { label: "Score", width: 42, right: true },
+      { label: "Band", width: 62 },
+      { label: "Loans", width: 40, right: true },
+      { label: "Borrowed", width: 78, right: true },
+      { label: "Outstanding", width: 78, right: true },
+    ],
+    dt.roster.map((r) => [
+      r.name,
+      r.phone,
+      String(r.riskScore),
+      bandMeta(r.riskBand).label,
+      String(r.loanCount),
+      tzs(r.borrowed.toString()),
+      tzs(r.outstanding.toString()),
+    ]),
+  );
+
+  // Watchlist.
+  drawTable(
+    ctx,
+    "Watchlist — overdue / defaulted",
+    [
+      { label: "Loan", width: 60 },
+      { label: "Customer", width: 95 },
+      { label: "Phone", width: 88 },
+      { label: "Days late", width: 52, right: true },
+      { label: "Owed", width: 72, right: true },
+      { label: "Referral", width: 148 },
+    ],
+    dt.watchlist.map((w) => [
+      w.ref,
+      w.customer,
+      w.phone,
+      `${w.daysLate}d`,
+      tzs(w.outstanding.toString()),
+      w.referral,
+    ]),
+  );
+
+  // Collections breakdown.
+  drawTable(
+    ctx,
+    "Collections — interest vs principal (period)",
+    [
+      { label: "Loan", width: 62 },
+      { label: "Customer", width: 133 },
+      { label: "Interest", width: 90, right: true },
+      { label: "Principal", width: 90, right: true },
+      { label: "Total", width: 90, right: true },
+    ],
+    dt.collections.map((r) => [
+      r.ref,
+      r.customer,
+      tzs(r.interest.toString()),
+      tzs(r.principal.toString()),
+      tzs(r.total.toString()),
+    ]),
+  );
 
   // Footer on all pages.
   const pages = doc.getPages();
