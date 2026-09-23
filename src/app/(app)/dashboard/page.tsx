@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Plus, Banknote, Receipt, Users } from "lucide-react";
+import type Decimal from "decimal.js";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
@@ -114,10 +115,12 @@ export default async function DashboardPage() {
         },
       },
     }),
+    // Pull enough overdue installments to cover repeats — we group by loan
+    // in JS so one loan with 3 overdue cycles shows as a single row.
     db.installment.findMany({
       where: { status: "OVERDUE" },
       orderBy: { dueDate: "asc" },
-      take: 10,
+      take: 200,
       include: {
         loan: {
           select: { id: true, customer: { select: { fullName: true } } },
@@ -145,6 +148,35 @@ export default async function DashboardPage() {
       },
     }),
   ]);
+
+  // Collapse overdue installments to one row per loan.
+  const overdueByLoan = new Map<
+    string,
+    {
+      loanId: string;
+      customerName: string;
+      earliestDue: Date;
+      cycleCount: number;
+      totalOwed: Decimal;
+    }
+  >();
+  for (const inst of overdueInstallments) {
+    const key = inst.loan.id;
+    const g = overdueByLoan.get(key);
+    if (!g) {
+      overdueByLoan.set(key, {
+        loanId: inst.loan.id,
+        customerName: inst.loan.customer.fullName,
+        earliestDue: inst.dueDate,
+        cycleCount: 1,
+        totalOwed: money(inst.expectedInterest),
+      });
+    } else {
+      g.cycleCount++;
+      g.totalOwed = g.totalOwed.plus(money(inst.expectedInterest));
+    }
+  }
+  const overdueLoanRows = [...overdueByLoan.values()].slice(0, 10);
 
   let outstanding = money(0);
   for (const loan of activeAndOverdueLoans) {
@@ -263,27 +295,30 @@ export default async function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {overdueInstallments.length === 0 ? (
+            {overdueLoanRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No overdue installments. Nice.
+                No overdue loans. Nice.
               </p>
             ) : (
               <ul className="space-y-2">
-                {overdueInstallments.map((i) => (
-                  <li key={i.id}>
+                {overdueLoanRows.map((g) => (
+                  <li key={g.loanId}>
                     <Link
-                      href={`/loans/${i.loan.id}`}
+                      href={`/loans/${g.loanId}`}
                       className="flex items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm hover:bg-destructive/10"
                     >
-                      <Avatar name={i.loan.customer.fullName} size="sm" tone="danger" />
+                      <Avatar name={g.customerName} size="sm" tone="danger" />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium">{i.loan.customer.fullName}</div>
+                        <div className="font-medium">{g.customerName}</div>
                         <div className="text-xs text-muted-foreground">
-                          Cycle {i.cycleNumber} · was due {formatDate(i.dueDate)}
+                          {g.cycleCount === 1
+                            ? "1 cycle overdue"
+                            : `${g.cycleCount} cycles overdue`}{" "}
+                          · since {formatDate(g.earliestDue)}
                         </div>
                       </div>
                       <span className="text-sm font-medium">
-                        {formatTZS(i.expectedInterest.toString())}
+                        {formatTZS(g.totalOwed.toString())}
                       </span>
                     </Link>
                   </li>
