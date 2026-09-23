@@ -84,15 +84,24 @@ export async function getReferralOverdue(
     );
     if (loanStatus !== "OVERDUE" && loanStatus !== "DEFAULTED") continue;
 
+    // Use the *earliest still-owing* installment's due date — same rule the
+    // per-loan overdue message uses — so the two messages agree on the same
+    // loan. Falls back to the loan's final due date if every installment has
+    // its interest covered (principal-only remaining).
+    const currentInst = loan.installments.find(
+      (i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID",
+    );
+    const dueDateSource =
+      currentInst?.dueDate ?? loan.dueAt ?? loan.installments[0].dueDate;
     const daysOverdue = Math.max(
       0,
-      Math.floor((now.getTime() - loan.dueAt.getTime()) / DAY),
+      Math.floor((now.getTime() - dueDateSource.getTime()) / DAY),
     );
     loans.push({
       loanRef: loanRef(loan.id),
       principal: money(loan.principal),
       amountDue: state.settlementAmountNow,
-      dueDate: loan.dueAt,
+      dueDate: dueDateSource,
       daysOverdue,
     });
     total = total.plus(state.settlementAmountNow);
