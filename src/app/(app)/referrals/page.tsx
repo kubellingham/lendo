@@ -56,7 +56,14 @@ export default async function ReferralsPage() {
               <TableBody>
                 {referrals.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <Link
+                        href={`/referrals/${r.id}`}
+                        className="hover:underline"
+                      >
+                        {r.name}
+                      </Link>
+                    </TableCell>
                     <TableCell className="font-mono text-xs">{r.phone}</TableCell>
                     <TableCell>{r.relationship ?? "—"}</TableCell>
                     <TableCell>

@@ -19,6 +19,68 @@ const schema = z.object({
 
 export type ReferralInput = z.infer<typeof schema> & { id?: string };
 
+/**
+ * Link (or unlink) one customer to a referral. Mirrors the referral's
+ * contact details into the customer's inline fallback fields so messaging
+ * keeps working from either side. Pass referralId=null to unlink.
+ */
+export async function setCustomerReferral(
+  customerId: string,
+  referralId: string | null,
+): Promise<ReferralResult> {
+  try {
+    let user;
+    try {
+      user = await requireRole(...WRITE_ROLES);
+    } catch (err) {
+      if (err instanceof ForbiddenError) return { ok: false, error: err.message };
+      throw err;
+    }
+    if (!customerId) return { ok: false, error: "Missing customer." };
+
+    if (referralId) {
+      const r = await db.referral.findUnique({ where: { id: referralId } });
+      if (!r) return { ok: false, error: "Referral not found." };
+      await db.customer.update({
+        where: { id: customerId },
+        data: {
+          referralId: r.id,
+          referralName: r.name,
+          referralPhone: r.phone,
+          referralRelationship: r.relationship,
+        },
+      });
+    } else {
+      await db.customer.update({
+        where: { id: customerId },
+        data: {
+          referralId: null,
+          referralName: null,
+          referralPhone: null,
+          referralRelationship: null,
+        },
+      });
+    }
+
+    await audit({
+      actorId: user.id,
+      action: referralId ? "referral.link_customer" : "referral.unlink_customer",
+      entity: "Customer",
+      entityId: customerId,
+      after: { referralId },
+    });
+    revalidatePath("/referrals");
+    revalidatePath(`/customers/${customerId}`);
+    return { ok: true, id: customerId };
+  } catch (err) {
+    console.error("[setCustomerReferral]", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not update link.",
+    };
+  }
+}
+
 export async function saveReferral(input: ReferralInput): Promise<ReferralResult> {
   try {
     let user;
