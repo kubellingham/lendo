@@ -3,7 +3,6 @@ import { Plus } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { PageHeader } from "@/components/layout/page-header";
-import { SearchBox } from "@/components/ui/search-box";
 import { Button } from "@/components/ui/button";
 import {
   CustomersTable,
@@ -22,20 +21,11 @@ export default async function CustomersPage({
   const riskFilter =
     risk && risk in RiskBand ? (risk as keyof typeof RiskBand) : undefined;
 
+  // Load the roster; typed search filters client-side for instant results.
   const customers = await db.customer.findMany({
     where: {
       ...(flagged === "1" ? { isFlagged: true } : {}),
       ...(riskFilter ? { riskBand: riskFilter } : {}),
-      ...(q
-        ? {
-            OR: [
-              { fullName: { contains: q, mode: "insensitive" } },
-              { businessName: { contains: q, mode: "insensitive" } },
-              { phone: { contains: q } },
-              { nationalIdNumber: { contains: q } },
-            ],
-          }
-        : {}),
     },
     include: { loans: { select: { status: true } } },
     orderBy: { createdAt: "desc" },
@@ -73,7 +63,6 @@ export default async function CustomersPage({
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <SearchBox placeholder="Search by name, phone, ID…" />
         <Button
           asChild
           variant={flagged === "1" ? "default" : "outline"}
@@ -85,7 +74,7 @@ export default async function CustomersPage({
         </Button>
       </div>
 
-      <CustomersTable rows={rows} />
+      <CustomersTable rows={rows} initialQuery={q ?? ""} />
     </>
   );
 }
