@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { buildReceiptPdf, type ReceiptDoc, type ReceiptRow } from "@/lib/pdf/receipt";
+import { getPaymentDetails } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,14 @@ export async function GET(
     customerPhone: loan.customer.phone,
   };
 
+  const pay = await getPaymentDetails();
+  const payRows: ReceiptRow[] = [
+    { label: "— How to pay —", value: "" },
+    { label: "Bank", value: pay.bank },
+    { label: "Account name", value: pay.accountName },
+    { label: "Account number", value: pay.accountNumber },
+  ];
+
   let doc: ReceiptDoc;
   switch (type) {
     case "reminder_7d":
@@ -106,6 +115,7 @@ export async function GET(
         { label: "Principal", value: tsh(loan.principal) },
         { label: "Interest due", value: tsh(interestForCurrent) },
         { label: "Balance", value: tsh(state.principalOutstanding), strong: true },
+        ...payRows,
       ];
       doc = {
         ...base,
@@ -123,6 +133,7 @@ export async function GET(
         { label: "Was due", value: formatDate(dueDateSource) },
         { label: "Days overdue", value: String(daysOverdue) },
         { label: "Balance", value: tsh(state.principalOutstanding), strong: true },
+        ...payRows,
       ];
       doc = {
         ...base,
@@ -183,6 +194,7 @@ export async function GET(
           value: tsh(state.settlementAmountNow),
           strong: true,
         },
+        ...payRows,
       ];
       doc = {
         ...base,

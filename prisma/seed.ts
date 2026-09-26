@@ -53,6 +53,23 @@ async function main() {
     update: {},
     create: { key: "tithe_rate_pct", value: "10" },
   });
+  // Bank details customers should pay into — shown in every reminder message
+  // and PDF. Configurable in Settings.
+  await db.setting.upsert({
+    where: { key: "payment_bank" },
+    update: {},
+    create: { key: "payment_bank", value: "CRDB BANK" },
+  });
+  await db.setting.upsert({
+    where: { key: "payment_account_name" },
+    update: {},
+    create: { key: "payment_account_name", value: "Kathleen Kube" },
+  });
+  await db.setting.upsert({
+    where: { key: "payment_account_number" },
+    update: {},
+    create: { key: "payment_account_number", value: "10327855568" },
+  });
   console.log("✔ Default settings ready");
 
   // Backfill saved Referral contacts from any inline referral data on

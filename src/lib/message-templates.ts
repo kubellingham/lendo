@@ -40,6 +40,11 @@ Just a friendly reminder — your Lendo loan payment is due in *7 days*.
 • Total due: TSh {{totalDue}}
 • Due date: {{dueDate}}
 
+*How to pay*
+• Bank: {{paymentBank}}
+• Account name: {{paymentAccountName}}
+• Account number: {{paymentAccountNumber}}
+
 Kindly plan ahead so we can keep your account in good standing. Thank you for choosing Lendo.
 
 — Lendo
@@ -64,6 +69,11 @@ Your Lendo loan payment is due in *3 days*. Please arrange payment to avoid any 
 • Total due: TSh {{totalDue}}
 • Due date: {{dueDate}}
 
+*How to pay*
+• Bank: {{paymentBank}}
+• Account name: {{paymentAccountName}}
+• Account number: {{paymentAccountNumber}}
+
 We appreciate your prompt attention. If you've already sent payment, kindly disregard this message — thank you.
 
 — Lendo
@@ -85,6 +95,11 @@ A quick reminder — your Lendo loan payment is *due today*, {{dueDate}}.
 • Loan ref: {{loanRef}}
 • Amount due: TSh {{totalDue}}
 
+*How to pay*
+• Bank: {{paymentBank}}
+• Account name: {{paymentAccountName}}
+• Account number: {{paymentAccountNumber}}
+
 Please settle before the end of the day to keep your account current. If you need any help, just reply to this message — we're here for you.
 
 — Lendo
@@ -105,6 +120,11 @@ We noticed your Lendo loan payment of *TSh {{totalDue}}* was due on {{dueDate}} 
 
 • Loan ref: {{loanRef}}
 • Outstanding balance: TSh {{outstanding}}
+
+*How to pay*
+• Bank: {{paymentBank}}
+• Account name: {{paymentAccountName}}
+• Account number: {{paymentAccountNumber}}
 
 Please make the payment as soon as possible. If you're facing any difficulty, please reach out — we'd rather find a way forward together than let this affect your standing with Lendo.
 
@@ -267,6 +287,11 @@ _Borrow with confidence. Repay with ease._`,
     body: `Dear {{referralName}},
 
 Your referral, *{{customerName}}*, has an outstanding loan with Lendo. The loan, amounting to TSh {{principal}}, was due to be fully repaid by {{dueDate}}. It is currently *{{daysOverdue}} day(s)* overdue, with a total of TSh {{totalDue}} still outstanding.
+
+*How they can pay*
+• Bank: {{paymentBank}}
+• Account name: {{paymentAccountName}}
+• Account number: {{paymentAccountNumber}}
 
 Please kindly remind them to clear the outstanding amount as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
 

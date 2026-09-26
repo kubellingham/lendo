@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { getReferralOverdue, num } from "@/lib/referral";
 import { buildReceiptPdf, type ReceiptRow } from "@/lib/pdf/receipt";
+import { getPaymentDetails } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,12 +29,17 @@ export async function GET(
     "TSh " + num(l.amountDue),
   ]);
 
+  const pay = await getPaymentDetails();
   const infoRows: ReceiptRow[] = [
     { label: "Borrower", value: summary.borrowerName },
     {
       label: "Overdue loans",
       value: String(summary.loans.length),
     },
+    { label: "— How they can pay —", value: "" },
+    { label: "Bank", value: pay.bank },
+    { label: "Account name", value: pay.accountName },
+    { label: "Account number", value: pay.accountNumber },
   ];
 
   const pdf = await buildReceiptPdf({

@@ -6,6 +6,7 @@ import { computeLoanState } from "@/lib/loan-calc";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { getTemplate, renderMessage } from "@/lib/message-templates";
 import { getReferralOverdue, buildReferralMessage } from "@/lib/referral";
+import { getPaymentDetails } from "@/lib/settings";
 
 export type MessagePreview = {
   ok: true;
@@ -100,6 +101,7 @@ export async function previewLoanMessage(
       };
     }
 
+    const pay = await getPaymentDetails();
     const message = renderMessage(template.body, {
       customerName: loan.customer.fullName,
       referralName: loan.customer.referralName || "referrer",
@@ -114,6 +116,9 @@ export async function previewLoanMessage(
       daysOverdue,
       totalRepaid: tsh(totalRepaid),
       paidAt: lastPayment ? formatDateTime(lastPayment.paidAt) : "—",
+      paymentBank: pay.bank,
+      paymentAccountName: pay.accountName,
+      paymentAccountNumber: pay.accountNumber,
     });
 
     return {
@@ -243,9 +248,10 @@ export async function previewCustomerMessage(
           error: `${summary.borrowerName} has no overdue or defaulted loans right now.`,
         };
       }
+      const pay = await getPaymentDetails();
       return {
         ok: true,
-        message: buildReferralMessage(summary),
+        message: buildReferralMessage(summary, pay),
         customerName: summary.referralName || "Referral",
         phoneE164: summary.referralPhone,
         loanRef: null,

@@ -117,7 +117,10 @@ export async function getReferralOverdue(
 }
 
 /** The consolidated WhatsApp message to the referral (handles 1 or many loans). */
-export function buildReferralMessage(d: ReferralOverdue): string {
+export function buildReferralMessage(
+  d: ReferralOverdue,
+  pay?: { bank: string; accountName: string; accountNumber: string },
+): string {
   const count = d.loans.length;
   const lines = d.loans
     .map((l, i) => {
@@ -134,12 +137,16 @@ export function buildReferralMessage(d: ReferralOverdue): string {
     ? `has an outstanding loan with Lendo`
     : `has ${count} outstanding loans with Lendo`;
 
+  const payBlock = pay
+    ? `\n*How they can pay*\n• Bank: ${pay.bank}\n• Account name: ${pay.accountName}\n• Account number: ${pay.accountNumber}\n`
+    : "";
+
   return `Dear ${d.referralName || "referrer"},
 
 Your referral, *${d.borrowerName}*, ${intro}, totalling *TSh ${num(d.total)}* still to be paid:
 
 ${lines}
-
+${payBlock}
 Please kindly remind them to clear the outstanding amount as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
 
 Thank you for your cooperation and continued support.

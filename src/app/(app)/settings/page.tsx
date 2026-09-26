@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import {
   getTitheRatePct,
+  getPaymentDetails,
   setSetting,
   SETTING_KEYS,
 } from "@/lib/settings";
@@ -20,7 +21,34 @@ export default async function SettingsPage({
 }) {
   await requireRole("ADMIN");
   const sp = await searchParams;
-  const titheRate = await getTitheRatePct();
+  const [titheRate, payment] = await Promise.all([
+    getTitheRatePct(),
+    getPaymentDetails(),
+  ]);
+
+  async function savePaymentDetails(formData: FormData) {
+    "use server";
+    const admin = await requireRole("ADMIN");
+    const bank = String(formData.get("paymentBank") ?? "").trim();
+    const accountName = String(formData.get("paymentAccountName") ?? "").trim();
+    const accountNumber = String(
+      formData.get("paymentAccountNumber") ?? "",
+    ).trim();
+    await Promise.all([
+      setSetting(SETTING_KEYS.paymentBank, bank),
+      setSetting(SETTING_KEYS.paymentAccountName, accountName),
+      setSetting(SETTING_KEYS.paymentAccountNumber, accountNumber),
+    ]);
+    await audit({
+      actorId: admin.id,
+      action: "settings.update",
+      entity: "Setting",
+      entityId: "payment_details",
+      after: { bank, accountName, accountNumber },
+    });
+    revalidatePath("/settings");
+    redirect("/settings?saved=1");
+  }
 
   async function saveTitheRate(formData: FormData) {
     "use server";
@@ -54,6 +82,49 @@ export default async function SettingsPage({
           Settings saved.
         </div>
       ) : null}
+
+      <Card className="mb-6 max-w-xl">
+        <CardHeader>
+          <CardTitle>Payment details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-4 text-sm text-muted-foreground">
+            These appear in every reminder and overdue message (WhatsApp text
+            and PDF) so customers and referrals know exactly where to send the
+            money. Change them once and every future message updates.
+          </p>
+          <form action={savePaymentDetails} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="paymentBank">Bank</Label>
+              <Input
+                id="paymentBank"
+                name="paymentBank"
+                defaultValue={payment.bank}
+                placeholder="CRDB BANK"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="paymentAccountName">Account name</Label>
+              <Input
+                id="paymentAccountName"
+                name="paymentAccountName"
+                defaultValue={payment.accountName}
+                placeholder="Kathleen Kube"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="paymentAccountNumber">Account number</Label>
+              <Input
+                id="paymentAccountNumber"
+                name="paymentAccountNumber"
+                defaultValue={payment.accountNumber}
+                placeholder="10327855568"
+              />
+            </div>
+            <Button type="submit">Save payment details</Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card className="max-w-xl">
         <CardHeader>
