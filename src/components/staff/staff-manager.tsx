@@ -41,6 +41,20 @@ function randomPassword(): string {
   return out.join("");
 }
 
+const ROLE_DUTIES: Record<Role, string> = {
+  ADMIN:
+    "Full access: customers, loans, payments, messaging, capital, tithes, staff and settings.",
+  LOAN_OFFICER: [
+    "• Add and update customers (and the people who refer them)",
+    "• Issue loans and record payments",
+    "• Send WhatsApp reminders, receipts and overdue notices",
+  ].join("\n"),
+  ACCOUNTANT: [
+    "• Record capital the business receives (borrowed, invested, own funds)",
+    "• Log repayments against those capital sources",
+  ].join("\n"),
+};
+
 function buildInviteMessage(opts: {
   name: string;
   email: string;
@@ -51,10 +65,14 @@ function buildInviteMessage(opts: {
 }): string {
   const first = opts.name.split(" ")[0] || opts.name;
   const roleLabel = ROLE_LABELS[opts.role];
+  const duties = ROLE_DUTIES[opts.role];
   const signoff = opts.inviter ? `— ${opts.inviter}` : "— The Lendo team";
   return `Hi ${first} 👋
 
 Welcome to the team! You now have access to Lendo as a ${roleLabel}.
+
+*What you'll do*
+${duties}
 
 *How to sign in*
 • Open: ${opts.url}

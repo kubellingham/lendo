@@ -3,7 +3,10 @@ import { ROLE_LABELS } from "@/lib/role-labels";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
-import { ChangePasswordForm } from "@/components/staff/change-password-form";
+import {
+  ChangeNameForm,
+  ChangePasswordForm,
+} from "@/components/staff/change-password-form";
 
 export default async function ProfilePage() {
   const me = await requireUser();
@@ -15,14 +18,25 @@ export default async function ProfilePage() {
         description={`${me.email ?? ""} · ${ROLE_LABELS[me.role]}`}
       />
 
-      <Card className="max-w-xl">
-        <CardHeader>
-          <CardTitle>Change password</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ChangePasswordForm />
-        </CardContent>
-      </Card>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Your name</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChangeNameForm currentName={me.name ?? ""} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Change password</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChangePasswordForm />
+          </CardContent>
+        </Card>
+      </div>
     </>
   );
 }

@@ -236,6 +236,40 @@ export async function resetUserPassword(
   }
 }
 
+/** User renames themselves. */
+export async function updateOwnName(name: string): Promise<UserResult> {
+  try {
+    const actor = await requireUser();
+    const parsed = nameSchema.safeParse(name);
+    if (!parsed.success) {
+      return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid name." };
+    }
+    const before = await db.user.findUnique({ where: { id: actor.id } });
+    if (!before) return { ok: false, error: "User not found." };
+    await db.user.update({
+      where: { id: actor.id },
+      data: { name: parsed.data },
+    });
+    await audit({
+      actorId: actor.id,
+      action: "user.rename_self",
+      entity: "User",
+      entityId: actor.id,
+      before: { name: before.name },
+      after: { name: parsed.data },
+    });
+    revalidatePath("/settings/profile");
+    revalidatePath("/settings/staff");
+    return { ok: true, id: actor.id };
+  } catch (err) {
+    console.error("[updateOwnName]", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not update name.",
+    };
+  }
+}
+
 /** User changes own password (must present current one). */
 export async function changeOwnPassword(
   currentPassword: string,
