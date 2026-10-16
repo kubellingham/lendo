@@ -37,7 +37,11 @@ function Stat({ label, value }: { label: string; value: string }) {
 export default async function TithesPage() {
   const user = await requireUser();
   // Interest/profit is sensitive; restrict to ADMIN + ACCOUNTANT.
-  if (user.role !== "ADMIN" && user.role !== "ACCOUNTANT") {
+  if (
+    user.role !== "ADMIN" &&
+    user.role !== "ACCOUNTANT" &&
+    user.role !== "VIEWER"
+  ) {
     redirect("/dashboard?denied=1");
   }
   const canSubmit = user.role === "ADMIN";

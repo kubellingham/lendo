@@ -15,6 +15,7 @@ enum Role {
   ADMIN
   LOAN_OFFICER
   ACCOUNTANT
+  VIEWER
 }
 
 enum CustomerType {

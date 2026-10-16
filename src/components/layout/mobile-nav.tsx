@@ -36,13 +36,13 @@ const NAV: NavItem[] = [
     href: "/capital",
     label: "Capital",
     icon: Landmark,
-    roles: ["ADMIN", "ACCOUNTANT"],
+    roles: ["ADMIN", "ACCOUNTANT", "VIEWER"],
   },
   {
     href: "/tithes",
     label: "Tithes",
     icon: HandCoins,
-    roles: ["ADMIN", "ACCOUNTANT"],
+    roles: ["ADMIN", "ACCOUNTANT", "VIEWER"],
   },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["ADMIN"] },
 ];

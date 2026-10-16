@@ -73,10 +73,15 @@ function FlowRow({ label, value }: { label: string; value: string }) {
 
 export default async function CapitalPage() {
   const user = await requireUser();
-  if (user.role !== "ADMIN" && user.role !== "ACCOUNTANT") {
+  if (
+    user.role !== "ADMIN" &&
+    user.role !== "ACCOUNTANT" &&
+    user.role !== "VIEWER"
+  ) {
     redirect("/dashboard?denied=1");
   }
   const isAdmin = user.role === "ADMIN";
+  const canWrite = user.role === "ADMIN" || user.role === "ACCOUNTANT";
 
   const [sources, loans, paymentsAgg, titheAgg] = await Promise.all([
     db.capitalSource.findMany({
@@ -141,7 +146,7 @@ export default async function CapitalPage() {
       <PageHeader
         title="Capital & cash pool"
         description="Where the money comes from, and where it went."
-        action={<AddCapitalButton />}
+        action={canWrite ? <AddCapitalButton /> : null}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -252,11 +257,13 @@ export default async function CapitalPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <CapitalRowActions
-                        sourceId={s.id}
-                        sourceName={s.sourceName}
-                        isAdmin={isAdmin}
-                      />
+                      {canWrite ? (
+                        <CapitalRowActions
+                          sourceId={s.id}
+                          sourceName={s.sourceName}
+                          isAdmin={isAdmin}
+                        />
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ))}

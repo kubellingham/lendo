@@ -29,6 +29,7 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "ADMIN", label: ROLE_LABELS.ADMIN },
   { value: "LOAN_OFFICER", label: ROLE_LABELS.LOAN_OFFICER },
   { value: "ACCOUNTANT", label: ROLE_LABELS.ACCOUNTANT },
+  { value: "VIEWER", label: ROLE_LABELS.VIEWER },
 ];
 
 /** 10-char URL-safe random password that's reasonably easy to type on a phone. */
@@ -52,6 +53,11 @@ const ROLE_DUTIES: Record<Role, string> = {
   ACCOUNTANT: [
     "• Record capital the business receives (borrowed, invested, own funds)",
     "• Log repayments against those capital sources",
+  ].join("\n"),
+  VIEWER: [
+    "• View everything — customers, loans, payments, capital, tithes and reports.",
+    "• You can read, download PDFs and export reports.",
+    "• You can't change anything — this is a read-only auditor view.",
   ].join("\n"),
 };
 
