@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
 import { Role } from "@/generated/prisma/enums";
 
 export type SessionUser = {
@@ -19,7 +20,22 @@ export class ForbiddenError extends Error {
 
 export async function getCurrentUser(): Promise<SessionUser | null> {
   const session = await auth();
-  return (session?.user as SessionUser | undefined) ?? null;
+  const sessionUser = (session?.user as SessionUser | undefined) ?? null;
+  if (!sessionUser) return null;
+  // Re-check the DB so a just-suspended or just-demoted user is bounced on
+  // their next request, not only on next login (the JWT in their browser is
+  // still valid otherwise).
+  const live = await db.user.findUnique({
+    where: { id: sessionUser.id },
+    select: { id: true, name: true, email: true, role: true, isActive: true },
+  });
+  if (!live || !live.isActive) return null;
+  return {
+    id: live.id,
+    name: live.name,
+    email: live.email,
+    role: live.role,
+  };
 }
 
 /** For pages: ensure a logged-in user or redirect to /login. */

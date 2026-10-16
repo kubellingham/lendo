@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { requireRole } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import {
@@ -82,6 +83,21 @@ export default async function SettingsPage({
           Settings saved.
         </div>
       ) : null}
+
+      <Card className="mb-6 max-w-xl">
+        <CardHeader>
+          <CardTitle>Staff</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Add and manage the people who can sign in to Lendo. Set roles,
+            reset passwords, suspend or remove accounts.
+          </p>
+          <Button asChild variant="outline">
+            <Link href="/settings/staff">Manage staff</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card className="mb-6 max-w-xl">
         <CardHeader>
