@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Key, Pause, Play, Trash2 } from "lucide-react";
+import { Plus, Pencil, Key, Pause, Play, Trash2, Send, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,43 @@ const ROLE_OPTIONS: { value: Role; label: string }[] = [
   { value: "LOAN_OFFICER", label: ROLE_LABELS.LOAN_OFFICER },
   { value: "ACCOUNTANT", label: ROLE_LABELS.ACCOUNTANT },
 ];
+
+/** 10-char URL-safe random password that's reasonably easy to type on a phone. */
+function randomPassword(): string {
+  const alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const out: string[] = [];
+  const buf = new Uint32Array(10);
+  (globalThis.crypto ?? crypto).getRandomValues(buf);
+  for (const n of buf) out.push(alphabet[n % alphabet.length]);
+  return out.join("");
+}
+
+function buildInviteMessage(opts: {
+  name: string;
+  email: string;
+  role: Role;
+  password: string;
+  url: string;
+  inviter?: string | null;
+}): string {
+  const first = opts.name.split(" ")[0] || opts.name;
+  const roleLabel = ROLE_LABELS[opts.role];
+  const signoff = opts.inviter ? `— ${opts.inviter}` : "— The Lendo team";
+  return `Hi ${first} 👋
+
+Welcome to the team! You now have access to Lendo as a ${roleLabel}.
+
+*How to sign in*
+• Open: ${opts.url}
+• Email: ${opts.email}
+• First-time password: ${opts.password}
+
+Please change your password right after signing in — tap the user icon at the top-right and choose *Change password*.
+
+If anything doesn't work, let me know.
+
+${signoff}`;
+}
 
 export type StaffUser = {
   id: string;
@@ -145,18 +183,38 @@ export function AddStaffButton() {
 export function StaffRowActions({
   user,
   isSelf,
+  inviterName,
 }: {
   user: StaffUser;
   isSelf: boolean;
+  inviterName?: string | null;
 }) {
   const router = useRouter();
   const [editOpen, setEditOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [pending, start] = useTransition();
   const [editError, setEditError] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ name: user.name, role: user.role });
   const [newPwd, setNewPwd] = useState("");
+  const [invitePwd, setInvitePwd] = useState(() => randomPassword());
+  const [invitePwdApplied, setInvitePwdApplied] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Build the message live so it updates as the password is tweaked.
+  const inviteMessage =
+    typeof window !== "undefined"
+      ? buildInviteMessage({
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          password: invitePwd,
+          url: `${window.location.origin}/login`,
+          inviter: inviterName,
+        })
+      : "";
 
   function saveEdit() {
     setEditError(null);
@@ -210,8 +268,42 @@ export function StaffRowActions({
     });
   }
 
+  // Reset the password on the server to whatever is in the invite dialog, so
+  // the message we hand over actually matches the live account.
+  function applyInvitePassword() {
+    setInviteError(null);
+    start(async () => {
+      const res = await resetUserPassword(user.id, invitePwd);
+      if (!res.ok) setInviteError(res.error);
+      else setInvitePwdApplied(true);
+    });
+  }
+
+  async function copyInvite() {
+    try {
+      await navigator.clipboard.writeText(inviteMessage);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setInviteError("Couldn't copy. Select the message above and copy it by hand.");
+    }
+  }
+
+  function openInvite() {
+    setInvitePwd(randomPassword());
+    setInvitePwdApplied(false);
+    setCopied(false);
+    setInviteError(null);
+    setInviteOpen(true);
+  }
+
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
+      {isSelf ? null : (
+        <Button variant="outline" size="sm" onClick={openInvite}>
+          <Send className="size-4" /> Invite
+        </Button>
+      )}
       <Button variant="ghost" size="sm" onClick={() => setEditOpen(true)}>
         <Pencil className="size-4" /> Edit
       </Button>
@@ -248,6 +340,92 @@ export function StaffRowActions({
           </Button>
         </>
       )}
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Invite {user.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Set a first-time password and copy the ready message below. Paste
+              it into WhatsApp / SMS / email. She can change the password after
+              signing in.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+              <div className="space-y-1.5">
+                <Label>First-time password</Label>
+                <Input
+                  value={invitePwd}
+                  onChange={(e) => {
+                    setInvitePwd(e.target.value);
+                    setInvitePwdApplied(false);
+                  }}
+                  placeholder="8+ characters"
+                />
+              </div>
+              <div className="flex items-end">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => {
+                    setInvitePwd(randomPassword());
+                    setInvitePwdApplied(false);
+                  }}
+                >
+                  Generate
+                </Button>
+              </div>
+              <div className="flex items-end">
+                <Button
+                  type="button"
+                  onClick={applyInvitePassword}
+                  disabled={pending || invitePwdApplied || invitePwd.length < 8}
+                >
+                  {invitePwdApplied ? "Password set ✓" : "Set password"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Invite message</Label>
+              <Textarea
+                value={inviteMessage}
+                readOnly
+                rows={12}
+                className="font-mono text-xs"
+              />
+            </div>
+          </div>
+          {inviteError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {inviteError}
+            </p>
+          ) : null}
+          {!invitePwdApplied ? (
+            <p className="text-xs text-amber-700">
+              Set the password first so it actually matches her account before
+              you send the message.
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteOpen(false)} disabled={pending}>
+              Close
+            </Button>
+            <Button onClick={copyInvite} disabled={!invitePwdApplied}>
+              {copied ? (
+                <>
+                  <Check className="size-4" /> Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="size-4" /> Copy message
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>

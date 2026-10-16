@@ -105,6 +105,7 @@ export default async function StaffPage() {
                             isActive: u.isActive,
                           }}
                           isSelf={u.id === me.id}
+                          inviterName={me.name ?? me.email}
                         />
                       </TableCell>
                     </TableRow>
