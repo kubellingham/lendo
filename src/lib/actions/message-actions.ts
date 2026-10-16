@@ -39,7 +39,8 @@ export async function previewLoanMessage(
   templateKey: string,
 ): Promise<MessagePreview | MessageError> {
   try {
-    await requireUser();
+    const _u = await requireUser();
+    if (_u.role === "DEMO_VIEWER") return { ok: false, error: "Not available in demo mode." };
     const template = getTemplate(templateKey);
     if (!template) return { ok: false, error: "Unknown template." };
 
@@ -152,7 +153,8 @@ export async function previewPaymentMessage(
   templateKey = "payment_received",
 ): Promise<MessagePreview | MessageError> {
   try {
-    await requireUser();
+    const _u = await requireUser();
+    if (_u.role === "DEMO_VIEWER") return { ok: false, error: "Not available in demo mode." };
     const template = getTemplate(templateKey);
     if (!template) return { ok: false, error: "Unknown template." };
 
@@ -226,7 +228,8 @@ export async function previewCustomerMessage(
   extras: Record<string, string> = {},
 ): Promise<MessagePreview | MessageError> {
   try {
-    await requireUser();
+    const _u = await requireUser();
+    if (_u.role === "DEMO_VIEWER") return { ok: false, error: "Not available in demo mode." };
     const template = getTemplate(templateKey);
     if (!template) return { ok: false, error: "Unknown template." };
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/layout/page-header";
@@ -18,6 +19,7 @@ import {
 
 export default async function ReferralsPage() {
   const user = await requireUser();
+  if (user.role === "DEMO_VIEWER") redirect("/dashboard?denied=1");
   const canWrite = WRITE_ROLES.includes(user.role);
 
   const referrals = await db.referral.findMany({

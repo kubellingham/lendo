@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { formatTZS } from "@/lib/money";
+import { fmtMoney, fmtPhone, fmtId, isDemo } from "@/lib/demo-mode";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ export default async function CustomerProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const user = await requireUser();
+  const demo = isDemo(user);
   const { id } = await params;
   const canWrite = WRITE_ROLES.includes(user.role);
 
@@ -106,10 +108,10 @@ export default async function CustomerProfilePage({
             </CardHeader>
             <CardContent>
               <dl className="grid gap-4 sm:grid-cols-3">
-                <Detail label="Phone" value={customer.phone} />
-                <Detail label="Alternate phone" value={customer.altPhone} />
-                <Detail label="Email" value={customer.email} />
-                <Detail label="National ID" value={customer.nationalIdNumber} />
+                <Detail label="Phone" value={fmtPhone(customer.phone, demo)} />
+                <Detail label="Alternate phone" value={fmtPhone(customer.altPhone, demo)} />
+                <Detail label="Email" value={demo ? "•••@•••" : customer.email} />
+                <Detail label="National ID" value={fmtId(customer.nationalIdNumber, demo)} />
                 <Detail label="Occupation" value={customer.occupation} />
                 <Detail label="Employer" value={customer.employer} />
                 <Detail label="Business TIN" value={customer.businessTin} />
@@ -126,7 +128,7 @@ export default async function CustomerProfilePage({
                       : null
                   }
                 />
-                <Detail label="Referral phone" value={customer.referralPhone} />
+                <Detail label="Referral phone" value={fmtPhone(customer.referralPhone, demo)} />
               </dl>
               {customer.notes ? (
                 <div className="mt-4 rounded-md bg-muted p-3 text-sm">
@@ -152,7 +154,7 @@ export default async function CustomerProfilePage({
                   >
                     <div>
                       <div className="font-medium">
-                        {formatTZS(loan.principal.toString())}
+                        {fmtMoney(loan.principal.toString(), demo)}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         Disbursed {formatDate(loan.disbursedAt)} · Due{" "}

@@ -26,10 +26,10 @@ type NavItem = {
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/customers", label: "Customers", icon: Users },
-  { href: "/referrals", label: "Referrals", icon: Contact },
+  { href: "/referrals", label: "Referrals", icon: Contact, roles: ["ADMIN","LOAN_OFFICER","ACCOUNTANT","VIEWER"] },
   { href: "/loans", label: "Loans", icon: Banknote },
   { href: "/payments", label: "Payments", icon: Receipt },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
+  { href: "/reports", label: "Reports", icon: BarChart3, roles: ["ADMIN","LOAN_OFFICER","ACCOUNTANT","VIEWER"] },
   {
     href: "/capital",
     label: "Capital",

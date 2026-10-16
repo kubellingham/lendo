@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { requireUser } from "@/lib/rbac";
 import { db } from "@/lib/db";
@@ -17,7 +17,8 @@ export default async function ReferralDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  if (user.role === "DEMO_VIEWER") redirect("/dashboard?denied=1");
   const { id } = await params;
 
   const [referral, customers] = await Promise.all([

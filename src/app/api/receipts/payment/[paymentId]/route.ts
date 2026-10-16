@@ -28,6 +28,9 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
+    return new NextResponse("Not available in demo mode", { status: 403 });
+  }
 
   const { paymentId } = await params;
   const payment = await db.payment.findUnique({

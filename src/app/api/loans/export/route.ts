@@ -17,6 +17,9 @@ function csvEscape(s: string): string {
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
+    return new NextResponse("Not available in demo mode", { status: 403 });
+  }
 
   const url = new URL(req.url);
   const from = url.searchParams.get("from")

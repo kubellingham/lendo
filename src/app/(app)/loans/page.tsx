@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate } from "@/lib/dates";
 import { formatTZS } from "@/lib/money";
+import { fmtMoney, isDemo } from "@/lib/demo-mode";
 import { computeLoanState, deriveStatuses } from "@/lib/loan-calc";
 import { nowInTz } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
@@ -26,6 +27,7 @@ export default async function LoansPage({
   searchParams: Promise<{ status?: string }>;
 }) {
   const user = await requireUser();
+  const demo = isDemo(user);
   const { status } = await searchParams;
   const canWrite = WRITE_ROLES.includes(user.role);
   const statusFilter =
@@ -89,9 +91,9 @@ export default async function LoansPage({
     .map(({ loan, state, effectiveStatus }) => ({
       id: loan.id,
       customerName: loan.customer.fullName,
-      principal: formatTZS(loan.principal.toString()),
+      principal: fmtMoney(loan.principal.toString(), demo),
       principalNum: Number(loan.principal),
-      outstanding: formatTZS(state.principalOutstanding),
+      outstanding: fmtMoney(state.principalOutstanding, demo),
       outstandingNum: Number(state.principalOutstanding.toString()),
       status: effectiveStatus,
       disbursedAt: formatDate(loan.disbursedAt),

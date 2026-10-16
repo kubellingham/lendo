@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/rbac";
 import { getPaymentsLedger } from "@/lib/queries/payments";
 import { formatDateTime } from "@/lib/dates";
 import { formatTZS, add } from "@/lib/money";
+import { fmtMoney, fmtPhone, isDemo } from "@/lib/demo-mode";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,7 +19,8 @@ export default async function PaymentsPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string; method?: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  const demo = isDemo(user);
   const sp = await searchParams;
 
   const payments = await getPaymentsLedger(sp);
@@ -30,11 +32,11 @@ export default async function PaymentsPage({
     date: formatDateTime(p.paidAt),
     dateMs: p.paidAt.getTime(),
     customer: p.loan.customer.fullName,
-    phone: p.loan.customer.phone,
-    amount: formatTZS(p.amount.toString()),
+    phone: fmtPhone(p.loan.customer.phone, demo),
+    amount: fmtMoney(p.amount.toString(), demo),
     amountNum: Number(p.amount.toString()),
     method: p.method,
-    reference: p.reference ?? "—",
+    reference: demo ? "•••••" : (p.reference ?? "—"),
     recordedBy: p.recordedBy.name,
   }));
 
@@ -105,7 +107,7 @@ export default async function PaymentsPage({
           <span className="text-sm text-muted-foreground">
             {rows.length} payment{rows.length === 1 ? "" : "s"}
           </span>
-          <span className="text-lg font-semibold">{formatTZS(total)}</span>
+          <span className="text-lg font-semibold">{fmtMoney(total, demo)}</span>
         </CardContent>
       </Card>
 

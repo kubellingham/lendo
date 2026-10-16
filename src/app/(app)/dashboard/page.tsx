@@ -5,6 +5,7 @@ import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { add, formatTZS, money } from "@/lib/money";
+import { fmtMoney, isDemo } from "@/lib/demo-mode";
 import { formatDate, startOfTodayUtc, addBusinessDays } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,7 @@ function Stat({
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  const demo = isDemo(user);
   const canWrite = WRITE_ROLES.includes(user.role);
 
   const today = startOfTodayUtc();
@@ -232,7 +234,7 @@ export default async function DashboardPage() {
         />
         <Stat
           label="Principal outstanding"
-          value={formatTZS(outstanding)}
+          value={fmtMoney(outstanding, demo)}
           sub="Across active & overdue loans"
         />
         <Stat
@@ -244,8 +246,8 @@ export default async function DashboardPage() {
         />
         <Stat
           label="Collected this week"
-          value={formatTZS(weekCollectedAgg._sum.amount?.toString() ?? "0")}
-          sub={`${formatTZS(monthCollectedAgg._sum.amount?.toString() ?? "0")} this month`}
+          value={fmtMoney(weekCollectedAgg._sum.amount?.toString() ?? "0", demo)}
+          sub={`${fmtMoney(monthCollectedAgg._sum.amount?.toString() ?? "0", demo)} this month`}
           tone="success"
         />
       </div>
@@ -278,7 +280,7 @@ export default async function DashboardPage() {
                         </div>
                       </div>
                       <span className="text-sm font-medium">
-                        {formatTZS(i.expectedInterest.toString())}
+                        {fmtMoney(i.expectedInterest.toString(), demo)}
                       </span>
                     </Link>
                   </li>
@@ -318,7 +320,7 @@ export default async function DashboardPage() {
                         </div>
                       </div>
                       <span className="text-sm font-medium">
-                        {formatTZS(g.totalOwed.toString())}
+                        {fmtMoney(g.totalOwed.toString(), demo)}
                       </span>
                     </Link>
                   </li>
@@ -364,7 +366,7 @@ export default async function DashboardPage() {
                         dueDate={p.installment?.dueDate ?? null}
                       />
                       <span className="font-medium">
-                        {formatTZS(p.amount.toString())}
+                        {fmtMoney(p.amount.toString(), demo)}
                       </span>
                     </div>
                   </li>

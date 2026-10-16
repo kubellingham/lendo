@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Download } from "lucide-react";
 import { requireUser } from "@/lib/rbac";
 import { db } from "@/lib/db";
@@ -43,7 +44,8 @@ export default async function ReportsPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
+  if (user.role === "DEMO_VIEWER") redirect("/dashboard?denied=1");
   const sp = await searchParams;
   const from = sp.from ? parseIsoDate(sp.from) : undefined;
   const to = sp.to ? parseIsoDate(sp.to) : undefined;

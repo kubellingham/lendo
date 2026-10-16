@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { formatDate, formatDateTime, toIsoDate } from "@/lib/dates";
 import { formatTZS, money, toDbString } from "@/lib/money";
+import { fmtMoney, fmtPhone, isDemo } from "@/lib/demo-mode";
 import { computeLoanState } from "@/lib/loan-calc";
 import { ensureLoanCycles } from "@/lib/loan-maintenance";
 import {
@@ -54,6 +55,7 @@ export default async function LoanDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const user = await requireUser();
+  const demo = isDemo(user);
   const canWrite = WRITE_ROLES.includes(user.role);
   const { id } = await params;
 
@@ -92,7 +94,7 @@ export default async function LoanDetailPage({
   return (
     <>
       <PageHeader
-        title={`Loan · ${formatTZS(loan.principal.toString())}`}
+        title={`Loan · ${fmtMoney(loan.principal.toString(), demo)}`}
         leading={<Avatar name={loan.customer.fullName} size="lg" />}
         description={
           <span className="font-mono text-xs">
@@ -156,20 +158,20 @@ export default async function LoanDetailPage({
         >
           {loan.customer.fullName}
         </Link>{" "}
-        · {loan.customer.phone} · Disbursed {formatDate(loan.disbursedAt)} · Due{" "}
+        · {fmtPhone(loan.customer.phone, demo)} · Disbursed {formatDate(loan.disbursedAt)} · Due{" "}
         {formatDate(loan.dueAt)} · Issued by {loan.issuedBy.name}
       </p>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Principal" value={formatTZS(loan.principal.toString())} />
-        <Stat label="Collected" value={formatTZS(state.totalCollected)} />
+        <Stat label="Principal" value={fmtMoney(loan.principal.toString(), demo)} />
+        <Stat label="Collected" value={fmtMoney(state.totalCollected, demo)} />
         <Stat
           label="Principal outstanding"
-          value={formatTZS(state.principalOutstanding)}
+          value={fmtMoney(state.principalOutstanding, demo)}
         />
         <Stat
           label="Settlement amount now"
-          value={state.isSettled ? "—" : formatTZS(state.settlementAmountNow)}
+          value={state.isSettled ? "—" : fmtMoney(state.settlementAmountNow, demo)}
         />
       </div>
 
@@ -226,18 +228,18 @@ export default async function LoanDetailPage({
                     <TableCell>{inst.cycleNumber}</TableCell>
                     <TableCell>{formatDate(inst.dueDate)}</TableCell>
                     <TableCell>
-                      {formatTZS(
-                        state.perInstallmentOpeningPrincipal[inst.id] ?? "0",
-                      )}
+                      {fmtMoney(
+                        state.perInstallmentOpeningPrincipal[inst.id] ?? "0"
+                      , demo)}
                     </TableCell>
                     <TableCell>
-                      {formatTZS(
+                      {fmtMoney(
                         state.perInstallmentInterestOwed[inst.id] ??
-                          inst.expectedInterest.toString(),
-                      )}
+                          inst.expectedInterest.toString()
+                      , demo)}
                     </TableCell>
                     <TableCell>
-                      {formatTZS(state.perInstallmentPaid[inst.id] ?? "0")}
+                      {fmtMoney(state.perInstallmentPaid[inst.id] ?? "0", demo)}
                     </TableCell>
                     <TableCell>
                       <InstallmentStatusBadge status={inst.status} />
@@ -284,7 +286,7 @@ export default async function LoanDetailPage({
                   {loan.payments.map((p) => (
                     <TableRow key={p.id}>
                       <TableCell>{formatDate(p.paidAt)}</TableCell>
-                      <TableCell>{formatTZS(p.amount.toString())}</TableCell>
+                      <TableCell>{fmtMoney(p.amount.toString(), demo)}</TableCell>
                       <TableCell>{p.method}</TableCell>
                       <TableCell>
                         {p.installment ? `#${p.installment.cycleNumber}` : "—"}
@@ -394,19 +396,19 @@ export default async function LoanDetailPage({
                     <div>
                       <div>Interest owed</div>
                       <div className="text-sm font-medium text-foreground">
-                        {formatTZS(interestOwed)}
+                        {fmtMoney(interestOwed, demo)}
                       </div>
                     </div>
                     <div>
                       <div>Interest covered</div>
                       <div className="text-sm font-medium text-foreground">
-                        {formatTZS(interestCovered)}
+                        {fmtMoney(interestCovered, demo)}
                       </div>
                     </div>
                     <div>
                       <div>Applied to principal</div>
                       <div className="text-sm font-medium text-foreground">
-                        {formatTZS(principalFromThisCycle)}
+                        {fmtMoney(principalFromThisCycle, demo)}
                       </div>
                     </div>
                     <div>
@@ -424,7 +426,7 @@ export default async function LoanDetailPage({
                       >
                         {interestRemaining.lte(0)
                           ? "✓"
-                          : formatTZS(interestRemaining)}
+                          : fmtMoney(interestRemaining, demo)}
                       </div>
                     </div>
                   </div>
@@ -449,7 +451,7 @@ export default async function LoanDetailPage({
                             {p.reference ? ` · ${p.reference}` : ""}
                           </div>
                           <span className="font-medium">
-                            {formatTZS(p.amount.toString())}
+                            {fmtMoney(p.amount.toString(), demo)}
                           </span>
                         </li>
                       ))}

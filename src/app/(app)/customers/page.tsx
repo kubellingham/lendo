@@ -9,6 +9,7 @@ import {
   type CustomerRow,
 } from "@/components/customers/customers-table";
 import { RiskBand } from "@/generated/prisma/enums";
+import { fmtPhone, isDemo } from "@/lib/demo-mode";
 
 export default async function CustomersPage({
   searchParams,
@@ -18,6 +19,7 @@ export default async function CustomersPage({
   const user = await requireUser();
   const { q, flagged, risk } = await searchParams;
   const canWrite = WRITE_ROLES.includes(user.role);
+  const demo = isDemo(user);
   const riskFilter =
     risk && risk in RiskBand ? (risk as keyof typeof RiskBand) : undefined;
 
@@ -37,7 +39,7 @@ export default async function CustomersPage({
     fullName: c.fullName,
     businessName: c.businessName,
     type: c.type,
-    phone: c.phone,
+    phone: fmtPhone(c.phone, demo),
     city: c.city,
     region: c.region,
     isFlagged: c.isFlagged,

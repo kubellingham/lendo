@@ -32,6 +32,9 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
+    return new NextResponse("Not available in demo mode", { status: 403 });
+  }
 
   const { loanId } = await params;
   const type = new URL(req.url).searchParams.get("type") ?? "reminder_7d";
