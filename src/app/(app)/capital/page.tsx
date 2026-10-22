@@ -1,9 +1,8 @@
 import { redirect } from "next/navigation";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { requireUser } from "@/lib/rbac";
-import { db } from "@/lib/db";
-import { computeLoanState } from "@/lib/loan-calc";
-import { formatTZS, money } from "@/lib/money";
+import { loadCashPool } from "@/lib/cash-pool";
+import { formatTZS } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,63 +82,21 @@ export default async function CapitalPage() {
   const isAdmin = user.role === "ADMIN";
   const canWrite = user.role === "ADMIN" || user.role === "ACCOUNTANT";
 
-  const [sources, loans, paymentsAgg, titheAgg] = await Promise.all([
-    db.capitalSource.findMany({
-      orderBy: { receivedAt: "desc" },
-      include: { repayments: true },
-    }),
-    db.loan.findMany({
-      select: {
-        principal: true,
-        status: true,
-        interestRatePct: true,
-        installments: { orderBy: { cycleNumber: "asc" } },
-        payments: { select: { amount: true, installmentId: true } },
-      },
-    }),
-    db.payment.aggregate({ _sum: { amount: true } }),
-    db.tithePayment.aggregate({ _sum: { amount: true } }),
-  ]);
-
-  // Capital raised / repaid / outstanding.
-  let capitalRaised = money(0);
-  let capitalRepaid = money(0);
-  let capitalOwed = money(0);
-  const rows = sources.map((s) => {
-    const amount = money(s.amount);
-    const repaid = s.repayments.reduce((a, r) => a.plus(money(r.amount)), money(0));
-    const outstanding = amount.minus(repaid);
-    capitalRaised = capitalRaised.plus(amount);
-    capitalRepaid = capitalRepaid.plus(repaid);
-    if (s.type === "BORROWED" || s.type === "INVESTMENT") {
-      capitalOwed = capitalOwed.plus(outstanding.gt(0) ? outstanding : money(0));
-    }
-    return { s, amount, repaid, outstanding };
-  });
-
-  // Loans: disbursed + principal still out (receivable).
-  let disbursed = money(0);
-  let principalOutstanding = money(0);
-  for (const loan of loans) {
-    disbursed = disbursed.plus(money(loan.principal));
-    const state = computeLoanState({
-      principal: loan.principal,
-      status: loan.status,
-      interestRatePct: loan.interestRatePct,
-      installments: loan.installments,
-      payments: loan.payments,
-    });
-    if (loan.status !== "WRITTEN_OFF") {
-      principalOutstanding = principalOutstanding.plus(state.principalOutstanding);
-    }
-  }
-
-  const customerCollected = money(paymentsAgg._sum.amount?.toString() ?? "0");
-  const tithesPaid = money(titheAgg._sum.amount?.toString() ?? "0");
-
-  const cashIn = capitalRaised.plus(customerCollected);
-  const cashOut = disbursed.plus(capitalRepaid).plus(tithesPaid);
-  const cashOnHand = cashIn.minus(cashOut);
+  const pool = await loadCashPool();
+  const {
+    rows,
+    capitalRaised,
+    capitalRepaid,
+    capitalOwed,
+    disbursed,
+    principalOutstanding,
+    customerCollected,
+    tithesPaid,
+    cashIn,
+    cashOut,
+    cashOnHand,
+  } = pool;
+  const sources = rows.map((r) => r.s);
 
   return (
     <>

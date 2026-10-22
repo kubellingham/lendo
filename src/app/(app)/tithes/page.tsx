@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/rbac";
 import { db } from "@/lib/db";
-import { formatTZS, money, round2 } from "@/lib/money";
+import { formatTZS, money } from "@/lib/money";
 import { formatDateTime } from "@/lib/dates";
 import {
   interestByMonth,
   monthsRange,
+  titheFor,
   periodLabel,
   type TitheLoan,
 } from "@/lib/tithes";
@@ -78,7 +79,7 @@ export default async function TithesPage() {
   let pendingTithe = money(0);
   for (const period of periods) {
     const interest = monthly.get(period) ?? money(0);
-    const tithe = round2(interest.times(titheRate).div(100));
+    const tithe = titheFor(interest, titheRate);
     totalInterest = totalInterest.plus(interest);
     totalTithe = totalTithe.plus(tithe);
     if (!submittedBy.has(period)) pendingTithe = pendingTithe.plus(tithe);
@@ -118,9 +119,7 @@ export default async function TithesPage() {
               <TableBody>
                 {periods.map((period) => {
                   const interest = monthly.get(period) ?? money(0);
-                  const tithe = round2(
-                    interest.times(titheRate).div(100),
-                  );
+                  const tithe = titheFor(interest, titheRate);
                   const sub = submittedBy.get(period);
                   return (
                     <TableRow key={period}>

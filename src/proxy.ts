@@ -22,7 +22,8 @@ export const proxy = auth((req) => {
 });
 
 export const config = {
-  // Protect everything except Next internals, static assets, and the cron API
-  // (the cron route authenticates with CRON_SECRET, not a session).
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/cron|.*\\.svg).*)"],
+  // Protect everything except Next internals, static assets, the cron API (it
+  // authenticates with CRON_SECRET) and Evelyn's read-only summary (it
+  // authenticates with EVELYN_API_SECRET), neither of which uses a session.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/cron|api/evelyn|.*\\.svg).*)"],
 };

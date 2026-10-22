@@ -7,6 +7,11 @@ import type { LoanStatus } from "@/generated/prisma/enums";
 
 export const DEFAULT_TITHE_RATE_PCT = 10;
 
+/** The tithe on a month's interest: ratePct % of it, to 2 decimal places. */
+export function titheFor(interest: Decimal, ratePct: number): Decimal {
+  return round2(interest.times(ratePct).div(100));
+}
+
 export type TitheLoan = {
   principal: Decimal | string;
   status: LoanStatus;

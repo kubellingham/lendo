@@ -68,7 +68,7 @@ export function periodRange(spec: PeriodSpec): {
   };
 }
 
-type LoanFull = {
+export type LoanFull = {
   id: string;
   principal: Decimal;
   interestRatePct: number;
@@ -109,7 +109,7 @@ export function loanRef(id: string): string {
 }
 
 /** Interest portion of each payment (interest is covered before principal). */
-function attributeInterest(loan: LoanFull): Map<string, Decimal> {
+export function attributeInterest(loan: LoanFull): Map<string, Decimal> {
   const state = computeLoanState({
     principal: loan.principal,
     status: "ACTIVE",
@@ -246,40 +246,41 @@ const AGING_BUCKETS: { label: string; min: number; max: number | null }[] = [
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** What buildReportData (and the Evelyn summary) load for each loan. */
+export const REPORT_LOAN_INCLUDE = {
+  customer: {
+    select: {
+      id: true,
+      fullName: true,
+      phone: true,
+      riskScore: true,
+      riskBand: true,
+      referralName: true,
+      referralPhone: true,
+    },
+  },
+  installments: { orderBy: { cycleNumber: "asc" } },
+  payments: {
+    select: {
+      id: true,
+      amount: true,
+      installmentId: true,
+      paidAt: true,
+      createdAt: true,
+      method: true,
+      recordedBy: { select: { name: true } },
+      installment: { select: { dueDate: true } },
+    },
+  },
+} as const;
+
 export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
   const { start, end, label, prev } = periodRange(spec);
   const prevRange = periodRange(prev);
 
   const [loansRaw, customers, capital, capitalRepayments, tithePayments, titheRate] =
     await Promise.all([
-      db.loan.findMany({
-        include: {
-          customer: {
-            select: {
-              id: true,
-              fullName: true,
-              phone: true,
-              riskScore: true,
-              riskBand: true,
-              referralName: true,
-              referralPhone: true,
-            },
-          },
-          installments: { orderBy: { cycleNumber: "asc" } },
-          payments: {
-            select: {
-              id: true,
-              amount: true,
-              installmentId: true,
-              paidAt: true,
-              createdAt: true,
-              method: true,
-              recordedBy: { select: { name: true } },
-              installment: { select: { dueDate: true } },
-            },
-          },
-        },
-      }),
+      db.loan.findMany({ include: REPORT_LOAN_INCLUDE }),
       db.customer.findMany({
         select: { id: true, createdAt: true, riskBand: true },
       }),
@@ -295,90 +296,14 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
     for (const [pid, amt] of attributeInterest(loan)) interestByPayment.set(pid, amt);
   }
 
-  function metrics(pStart: Date, pEnd: Date): PeriodMetrics {
-    let disbursed = money(0);
-    let collected = money(0);
-    let interestIncome = money(0);
-    let onTime = 0;
-    let latePmt = 0;
-    let newLoans = 0;
-    let outstanding = money(0);
-    let activeLoans = 0;
-    let defaultedAtEnd = 0;
-    let loansAtEnd = 0;
-
-    for (const loan of loans) {
-      if (loan.disbursedAt >= pStart && loan.disbursedAt < pEnd) {
-        disbursed = disbursed.plus(money(loan.principal));
-        newLoans++;
-      }
-      for (const p of loan.payments) {
-        if (p.paidAt >= pStart && p.paidAt < pEnd) {
-          collected = collected.plus(money(p.amount));
-          interestIncome = interestIncome.plus(
-            interestByPayment.get(p.id) ?? new Decimal(0),
-          );
-          if (p.installment) {
-            const diff = Math.round(
-              (Date.UTC(
-                p.paidAt.getUTCFullYear(),
-                p.paidAt.getUTCMonth(),
-                p.paidAt.getUTCDate(),
-              ) -
-                Date.UTC(
-                  p.installment.dueDate.getUTCFullYear(),
-                  p.installment.dueDate.getUTCMonth(),
-                  p.installment.dueDate.getUTCDate(),
-                )) /
-                DAY,
-            );
-            if (diff > 0) latePmt++;
-            else onTime++;
-          }
-        }
-      }
-
-      // End-of-period snapshot for loans disbursed by then.
-      if (loan.disbursedAt < pEnd) {
-        loansAtEnd++;
-        const priorPayments = loan.payments
-          .filter((p) => p.paidAt < pEnd)
-          .map((p) => ({ amount: p.amount, installmentId: p.installmentId }));
-        const st = computeLoanState({
-          principal: loan.principal,
-          status: "ACTIVE",
-          interestRatePct: loan.interestRatePct,
-          installments: loan.installments,
-          payments: priorPayments,
-        });
-        if (st.principalOutstanding.gt(0)) {
-          outstanding = outstanding.plus(st.principalOutstanding);
-          activeLoans++;
-          if (loan.dueAt < pEnd) defaultedAtEnd++; // past due by period end, still owing
-        }
-      }
-    }
-
-    const totalPmt = onTime + latePmt;
-    return {
-      disbursed: round2(disbursed),
-      collected: round2(collected),
-      interestIncome: round2(interestIncome),
-      principalCollected: round2(collected.minus(interestIncome)),
-      newLoans,
-      newCustomers: customers.filter(
-        (c) => c.createdAt >= pStart && c.createdAt < pEnd,
-      ).length,
-      onTimeRatePct: totalPmt > 0 ? Math.round((onTime / totalPmt) * 100) : null,
-      outstanding: round2(outstanding),
-      activeLoans,
-      defaultRatePct:
-        loansAtEnd > 0 ? Math.round((defaultedAtEnd / loansAtEnd) * 100) : null,
-    };
-  }
-
-  const current = metrics(start, end);
-  const previous = metrics(prevRange.start, prevRange.end);
+  const current = computePeriodMetrics(loans, customers, interestByPayment, start, end);
+  const previous = computePeriodMetrics(
+    loans,
+    customers,
+    interestByPayment,
+    prevRange.start,
+    prevRange.end,
+  );
 
   // 6-month trend ending at the period end.
   const trend: ReportData["trend"] = [];
@@ -506,6 +431,99 @@ export async function buildReportData(spec: PeriodSpec): Promise<ReportData> {
       ratePct: titheRate,
       tithe: round2(current.interestIncome.times(titheRate).div(100)),
     },
+  };
+}
+
+/**
+ * Activity in [pStart, pEnd) plus a snapshot of what was still owed at pEnd.
+ * Dates are UTC midnights of calendar days, as Lendo stores them. Used for report
+ * periods and, by the Evelyn summary, for weeks.
+ */
+export function computePeriodMetrics(
+  loans: LoanFull[],
+  customers: { createdAt: Date }[],
+  interestByPayment: Map<string, Decimal>,
+  pStart: Date,
+  pEnd: Date,
+): PeriodMetrics {
+  let disbursed = money(0);
+  let collected = money(0);
+  let interestIncome = money(0);
+  let onTime = 0;
+  let latePmt = 0;
+  let newLoans = 0;
+  let outstanding = money(0);
+  let activeLoans = 0;
+  let defaultedAtEnd = 0;
+  let loansAtEnd = 0;
+
+  for (const loan of loans) {
+    if (loan.disbursedAt >= pStart && loan.disbursedAt < pEnd) {
+      disbursed = disbursed.plus(money(loan.principal));
+      newLoans++;
+    }
+    for (const p of loan.payments) {
+      if (p.paidAt >= pStart && p.paidAt < pEnd) {
+        collected = collected.plus(money(p.amount));
+        interestIncome = interestIncome.plus(
+          interestByPayment.get(p.id) ?? new Decimal(0),
+        );
+        if (p.installment) {
+          const diff = Math.round(
+            (Date.UTC(
+              p.paidAt.getUTCFullYear(),
+              p.paidAt.getUTCMonth(),
+              p.paidAt.getUTCDate(),
+            ) -
+              Date.UTC(
+                p.installment.dueDate.getUTCFullYear(),
+                p.installment.dueDate.getUTCMonth(),
+                p.installment.dueDate.getUTCDate(),
+              )) /
+              DAY,
+          );
+          if (diff > 0) latePmt++;
+          else onTime++;
+        }
+      }
+    }
+
+    // End-of-period snapshot for loans disbursed by then.
+    if (loan.disbursedAt < pEnd) {
+      loansAtEnd++;
+      const priorPayments = loan.payments
+        .filter((p) => p.paidAt < pEnd)
+        .map((p) => ({ amount: p.amount, installmentId: p.installmentId }));
+      const st = computeLoanState({
+        principal: loan.principal,
+        status: "ACTIVE",
+        interestRatePct: loan.interestRatePct,
+        installments: loan.installments,
+        payments: priorPayments,
+      });
+      if (st.principalOutstanding.gt(0)) {
+        outstanding = outstanding.plus(st.principalOutstanding);
+        activeLoans++;
+        if (loan.dueAt < pEnd) defaultedAtEnd++; // past due by period end, still owing
+      }
+    }
+  }
+
+  const totalPmt = onTime + latePmt;
+  return {
+    disbursed: round2(disbursed),
+    collected: round2(collected),
+    interestIncome: round2(interestIncome),
+    principalCollected: round2(collected.minus(interestIncome)),
+    newLoans,
+    newCustomers: customers.filter(
+      (c) => c.createdAt >= pStart && c.createdAt < pEnd,
+    ).length,
+    onTimeRatePct: totalPmt > 0 ? Math.round((onTime / totalPmt) * 100) : null,
+    outstanding: round2(outstanding),
+    activeLoans,
+    defaultRatePct:
+      loansAtEnd > 0 ? Math.round((defaultedAtEnd / loansAtEnd) * 100) : null,
   };
 }
 
