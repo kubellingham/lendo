@@ -13,21 +13,38 @@ const DEFAULT_TEMPLATES = MESSAGE_TEMPLATES.map((t) => ({
 }));
 
 async function main() {
-  const email = (process.env.SEED_ADMIN_EMAIL || "admin@lendo.co.tz").toLowerCase();
-  const password = process.env.SEED_ADMIN_PASSWORD || "ChangeMe123!";
-  const passwordHash = await bcrypt.hash(password, 10);
+  // Vercel previews share the production database, so only production builds
+  // (and local runs) may seed it.
+  const vercelEnv = process.env.VERCEL_ENV;
+  if (vercelEnv && vercelEnv !== "production") {
+    console.log(`Skipping the seed: this is a ${vercelEnv} build.`);
+    return;
+  }
 
-  const admin = await db.user.upsert({
-    where: { email },
-    update: {},
-    create: {
-      name: "System Administrator",
-      email,
-      passwordHash,
-      role: "ADMIN",
-    },
-  });
-  console.log(`✔ Admin user ready: ${admin.email}`);
+  // The first admin account. Never created with a default password, and the
+  // password is never printed.
+  const email = (process.env.SEED_ADMIN_EMAIL || "admin@lendo.co.tz").toLowerCase();
+  const existing = await db.user.findUnique({ where: { email }, select: { id: true } });
+  if (existing) {
+    console.log("✔ Admin account already exists (password unchanged)");
+  } else {
+    const password = process.env.SEED_ADMIN_PASSWORD ?? "";
+    if (password.length < 12) {
+      console.warn(
+        "⚠ No admin account created: set SEED_ADMIN_PASSWORD (12 characters or more) to create one.",
+      );
+    } else {
+      await db.user.create({
+        data: {
+          name: process.env.SEED_ADMIN_NAME?.trim() || "System Administrator",
+          email,
+          passwordHash: await bcrypt.hash(password, 10),
+          role: "ADMIN",
+        },
+      });
+      console.log("✔ Admin account created");
+    }
+  }
 
   for (const t of DEFAULT_TEMPLATES) {
     await db.notificationTemplate.upsert({
@@ -111,9 +128,7 @@ async function main() {
     console.error("Risk recompute skipped:", e);
   }
 
-  console.log("\nSeed complete. Login with:");
-  console.log(`  email:    ${email}`);
-  console.log(`  password: ${password}`);
+  console.log("Seed complete.");
 }
 
 main()
