@@ -4,6 +4,9 @@ import { formatDate, formatDateTime } from "@/lib/dates";
 import {
   getReferralOverdue,
   getReferralUpcoming,
+  pickOverdue,
+  pickUpcoming,
+  parseLoanIds,
   dueWhen,
   num,
 } from "@/lib/referral";
@@ -25,12 +28,16 @@ export async function GET(
 
   const { customerId } = await params;
   const pay = await getPaymentDetails();
+  const search = new URL(req.url).searchParams;
+  // Optional ?loans=id1,id2 — only the loans staff switched on.
+  const ids = parseLoanIds(search.get("loans"));
 
-  if (new URL(req.url).searchParams.get("type") === "upcoming") {
-    const up = await getReferralUpcoming(customerId);
-    if (!up) return new NextResponse("Customer not found", { status: 404 });
+  if (search.get("type") === "upcoming") {
+    const all = await getReferralUpcoming(customerId);
+    if (!all) return new NextResponse("Customer not found", { status: 404 });
+    const up = pickUpcoming(all, ids);
     if (up.loans.length === 0) {
-      return new NextResponse("No upcoming payments", { status: 404 });
+      return new NextResponse("No upcoming payments selected", { status: 404 });
     }
     const pdf = await buildReceiptPdf({
       docTitle: "UPCOMING PAYMENTS",
@@ -77,10 +84,11 @@ export async function GET(
     });
   }
 
-  const summary = await getReferralOverdue(customerId);
-  if (!summary) return new NextResponse("Customer not found", { status: 404 });
+  const allOverdue = await getReferralOverdue(customerId);
+  if (!allOverdue) return new NextResponse("Customer not found", { status: 404 });
+  const summary = pickOverdue(allOverdue, ids);
   if (summary.loans.length === 0) {
-    return new NextResponse("No overdue loans", { status: 404 });
+    return new NextResponse("No overdue loans selected", { status: 404 });
   }
 
   const rows = summary.loans.map((l) => [

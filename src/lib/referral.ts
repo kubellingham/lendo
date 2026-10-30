@@ -9,6 +9,7 @@ import { money, round2 } from "@/lib/money";
 import { formatDate, nowInTz, toBusinessDate } from "@/lib/dates";
 
 export type ReferralLoanLine = {
+  loanId: string;
   loanRef: string;
   principal: Decimal;
   amountDue: Decimal;
@@ -102,6 +103,7 @@ export async function getReferralOverdue(
       Math.floor((now.getTime() - dueDateSource.getTime()) / DAY),
     );
     loans.push({
+      loanId: loan.id,
       loanRef: loanRef(loan.id),
       principal: money(loan.principal),
       amountDue: state.settlementAmountNow,
@@ -316,4 +318,46 @@ Thank you for your continued support.
 Regards,
 The Lendo Team
 _Borrow with confidence. Repay with ease._`;
+}
+
+// ---------------------------------------------------------------------------
+// Choosing which loans go into a referral message. `ids` undefined = all.
+// Totals are recomputed so the message only counts what was chosen.
+// ---------------------------------------------------------------------------
+
+export function pickOverdue(
+  d: ReferralOverdue,
+  ids?: string[],
+): ReferralOverdue {
+  if (!ids) return d;
+  const keep = new Set(ids);
+  const loans = d.loans.filter((l) => keep.has(l.loanId));
+  return {
+    ...d,
+    loans,
+    total: round2(loans.reduce((s, l) => s.plus(l.amountDue), money(0))),
+  };
+}
+
+export function pickUpcoming(
+  d: ReferralUpcoming,
+  ids?: string[],
+): ReferralUpcoming {
+  if (!ids) return d;
+  const keep = new Set(ids);
+  const loans = d.loans.filter((l) => keep.has(l.loanId));
+  return {
+    ...d,
+    loans,
+    totalMinimum: round2(loans.reduce((s, l) => s.plus(l.minimumDue), money(0))),
+    totalToSettle: round2(
+      loans.reduce((s, l) => s.plus(l.settleAmount), money(0)),
+    ),
+  };
+}
+
+/** Parse a "id1,id2" list from a query string / form value. */
+export function parseLoanIds(raw: string | null | undefined): string[] | undefined {
+  if (raw == null) return undefined;
+  return raw.split(",").map((x) => x.trim()).filter(Boolean);
 }

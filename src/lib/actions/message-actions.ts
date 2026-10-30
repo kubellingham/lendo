@@ -11,8 +11,24 @@ import {
   getReferralUpcoming,
   upcomingForLoan,
   buildReferralUpcomingMessage,
+  pickOverdue,
+  pickUpcoming,
+  parseLoanIds,
+  dueWhen,
 } from "@/lib/referral";
 import { getPaymentDetails } from "@/lib/settings";
+
+/** One loan the staff member can switch on/off in a referral message. */
+export type ReferralPick = {
+  loanId: string;
+  loanRef: string;
+  dueDate: string;
+  /** Days until due (upcoming) or days overdue (overdue). */
+  days: number;
+  /** e.g. "in 5 days" / "12 days overdue" */
+  when: string;
+  amount: string;
+};
 
 export type MessagePreview = {
   ok: true;
@@ -20,6 +36,8 @@ export type MessagePreview = {
   customerName: string;
   phoneE164: string;
   loanRef: string | null;
+  /** Every loan that could go into a referral message (for the on/off list). */
+  referralLoans?: ReferralPick[];
 };
 
 export type MessageError = { ok: false; error: string };
@@ -293,13 +311,25 @@ export async function previewCustomerMessage(
           error: `${summary.borrowerName} has no overdue or defaulted loans right now.`,
         };
       }
+      const chosen = pickOverdue(summary, parseLoanIds(extras.loanIds));
+      if (chosen.loans.length === 0) {
+        return { ok: false, error: "Switch on at least one loan to include." };
+      }
       const pay = await getPaymentDetails();
       return {
         ok: true,
-        message: buildReferralMessage(summary, pay),
+        message: buildReferralMessage(chosen, pay),
         customerName: summary.referralName || "Referral",
         phoneE164: summary.referralPhone,
         loanRef: null,
+        referralLoans: summary.loans.map((l) => ({
+          loanId: l.loanId,
+          loanRef: l.loanRef,
+          dueDate: formatDate(l.dueDate),
+          days: l.daysOverdue,
+          when: `${l.daysOverdue} day(s) overdue`,
+          amount: `TSh ${tsh(l.amountDue)}`,
+        })),
       };
     }
 
@@ -320,13 +350,25 @@ export async function previewCustomerMessage(
           error: `${summary.borrowerName} has no upcoming payments right now.`,
         };
       }
+      const chosen = pickUpcoming(summary, parseLoanIds(extras.loanIds));
+      if (chosen.loans.length === 0) {
+        return { ok: false, error: "Switch on at least one loan to include." };
+      }
       const pay = await getPaymentDetails();
       return {
         ok: true,
-        message: buildReferralUpcomingMessage(summary, pay),
+        message: buildReferralUpcomingMessage(chosen, pay),
         customerName: summary.referralName || "Referral",
         phoneE164: summary.referralPhone,
         loanRef: null,
+        referralLoans: summary.loans.map((l) => ({
+          loanId: l.loanId,
+          loanRef: l.loanRef,
+          dueDate: formatDate(l.dueDate),
+          days: l.daysUntilDue,
+          when: dueWhen(l.daysUntilDue),
+          amount: `TSh ${tsh(l.minimumDue)}`,
+        })),
       };
     }
 

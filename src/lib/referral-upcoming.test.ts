@@ -95,3 +95,25 @@ describe("buildReferralUpcomingMessage", () => {
     expect(dueWhen(4)).toBe("in 4 days");
   });
 });
+
+describe("choosing loans for the referral message", () => {
+  it("pickUpcoming keeps only chosen loans and recomputes totals", async () => {
+    const { pickUpcoming, parseLoanIds } = await import("@/lib/referral");
+    const a = upcomingForLoan({ ...loan(), id: "loan_a" }, parseIsoDate("2026-10-26"))!;
+    const b = upcomingForLoan({ ...loan(), id: "loan_b" }, parseIsoDate("2026-10-26"))!;
+    const all = {
+      borrowerName: "X",
+      referralName: "Y",
+      referralPhone: "+255700000000",
+      loans: [a, b],
+      totalMinimum: a.minimumDue.plus(b.minimumDue),
+      totalToSettle: a.settleAmount.plus(b.settleAmount),
+    };
+    expect(pickUpcoming(all, undefined).loans).toHaveLength(2);
+    const one = pickUpcoming(all, parseLoanIds("loan_b"));
+    expect(one.loans.map((l) => l.loanId)).toEqual(["loan_b"]);
+    expect(one.totalMinimum.toString()).toBe("150000");
+    expect(one.totalToSettle.toString()).toBe("1150000");
+    expect(pickUpcoming(all, parseLoanIds("")).loans).toHaveLength(0);
+  });
+});
