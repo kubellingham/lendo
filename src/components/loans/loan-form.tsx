@@ -1,12 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { loanSchema, type LoanInput } from "@/lib/validation";
-import { issueLoan, type LoanActionResult } from "@/lib/actions/loan-actions";
+import {
+  issueLoan,
+  checkLoanEligibility,
+  type LoanActionResult,
+  type EligibilityView,
+} from "@/lib/actions/loan-actions";
 import { generateSchedule } from "@/lib/schedule";
 import { parseIsoDate, toIsoDate, formatDate } from "@/lib/dates";
 import { formatTZS } from "@/lib/money";
@@ -66,6 +71,35 @@ export function LoanForm({
       overrideReason: "",
     },
   });
+
+  const customerId = watch("customerId");
+  const [elig, setElig] = useState<EligibilityView | null>(null);
+  const [eligLoading, setEligLoading] = useState(false);
+  const [overrideOn, setOverrideOn] = useState(false);
+
+  // Check eligibility as soon as a customer is picked.
+  useEffect(() => {
+    let cancelled = false;
+    setElig(null);
+    setOverrideOn(false);
+    setValue("overrideBlacklist", false);
+    setNeedsOverride(false);
+    setFormError(null);
+    if (!customerId) return;
+    setEligLoading(true);
+    checkLoanEligibility(customerId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.ok) setElig(res.eligibility);
+      })
+      .finally(() => !cancelled && setEligLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId, setValue]);
+
+  const blocked = elig?.status === "BLOCKED";
+  const blockedForMe = blocked && !elig?.canOverride;
 
   const principal = watch("principal");
   const disbursedAt = watch("disbursedAt");
@@ -168,26 +202,30 @@ export function LoanForm({
             ) : null}
           </div>
 
-          {needsOverride && canOverride ? (
-            <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-              <p className="text-sm font-medium text-destructive">
-                Customer is blacklisted
-              </p>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  onChange={(e) =>
-                    setValue("overrideBlacklist", e.target.checked)
-                  }
+          {eligLoading ? (
+            <p className="text-xs text-muted-foreground">Checking eligibility…</p>
+          ) : elig ? (
+            <EligibilityPanel
+              elig={elig}
+              overrideOn={overrideOn}
+              onOverride={(on) => {
+                setOverrideOn(on);
+                setValue("overrideBlacklist", on);
+              }}
+              reasonField={
+                <Textarea
+                  {...register("overrideReason")}
+                  placeholder="Why are you issuing this loan anyway? (required, saved in the audit log)"
+                  rows={2}
                 />
-                I confirm I am overriding the blacklist (this will be audit-logged).
-              </label>
-              <Textarea
-                {...register("overrideReason")}
-                placeholder="Reason for override (required)"
-                rows={2}
-              />
-            </div>
+              }
+            />
+          ) : null}
+
+          {needsOverride && !elig && canOverride ? (
+            <p className="text-sm text-destructive">
+              This customer is not eligible — reload the page to see why.
+            </p>
           ) : null}
 
           {formError ? (
@@ -197,8 +235,17 @@ export function LoanForm({
           ) : null}
 
           <div className="flex gap-2">
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Issuing…" : "Issue loan"}
+            <Button
+              type="submit"
+              disabled={
+                isSubmitting || eligLoading || blockedForMe || (blocked && !overrideOn)
+              }
+            >
+              {isSubmitting
+                ? "Issuing…"
+                : blocked && overrideOn
+                  ? "Override & issue loan"
+                  : "Issue loan"}
             </Button>
             <Button
               type="button"
@@ -271,5 +318,115 @@ export function LoanForm({
         </CardContent>
       </Card>
     </form>
+  );
+}
+
+const STATUS_STYLE: Record<
+  EligibilityView["status"],
+  { title: string; box: string; text: string }
+> = {
+  ELIGIBLE: {
+    title: "Eligible for a new loan",
+    box: "border-emerald-200 bg-emerald-50",
+    text: "text-emerald-800",
+  },
+  WARNING: {
+    title: "Eligible — but check the record first",
+    box: "border-amber-200 bg-amber-50",
+    text: "text-amber-800",
+  },
+  BLOCKED: {
+    title: "Not eligible for a new loan",
+    box: "border-red-200 bg-red-50",
+    text: "text-red-800",
+  },
+};
+
+function EligibilityPanel({
+  elig,
+  overrideOn,
+  onOverride,
+  reasonField,
+}: {
+  elig: EligibilityView;
+  overrideOn: boolean;
+  onOverride: (on: boolean) => void;
+  reasonField: React.ReactNode;
+}) {
+  const st = STATUS_STYLE[elig.status];
+  const deductions = elig.reasons.filter((r) => r.delta < 0);
+  const credits = elig.reasons.filter((r) => r.delta > 0);
+  return (
+    <div className={`space-y-3 rounded-md border p-3 ${st.box}`}>
+      <div className="flex items-start justify-between gap-3">
+        <p className={`text-sm font-semibold ${st.text}`}>{st.title}</p>
+        <span
+          className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold"
+          style={{ color: elig.bandColor }}
+        >
+          Score {elig.score} · {elig.bandLabel}
+        </span>
+      </div>
+
+      {elig.blockers.length > 0 ? (
+        <ul className={`list-disc space-y-0.5 pl-5 text-sm ${st.text}`}>
+          {elig.blockers.map((b) => (
+            <li key={b}>{b}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      <div>
+        <p className="mb-1 text-xs font-medium text-slate-700">
+          {deductions.length > 0
+            ? "Why the score is down"
+            : "Clean record — no deductions"}
+        </p>
+        {elig.reasons.length > 0 ? (
+          <ul className="space-y-0.5 text-xs">
+            {[...deductions, ...credits].map((r, i) => (
+              <li key={i} className="flex justify-between gap-3">
+                <span className="text-slate-700">
+                  {r.label}
+                  {r.faded ? (
+                    <span className="text-slate-500"> · over 6 months ago, half weight</span>
+                  ) : null}
+                </span>
+                <span
+                  className={
+                    r.delta < 0
+                      ? "shrink-0 font-medium text-red-700"
+                      : "shrink-0 font-medium text-emerald-700"
+                  }
+                >
+                  {r.delta > 0 ? `+${r.delta}` : r.delta}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      {elig.status === "BLOCKED" ? (
+        elig.canOverride ? (
+          <div className="space-y-2 border-t border-red-200 pt-2">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={overrideOn}
+                onChange={(e) => onOverride(e.target.checked)}
+              />
+              Override and issue anyway (logged with your name and reason)
+            </label>
+            {overrideOn ? reasonField : null}
+          </div>
+        ) : (
+          <p className="border-t border-red-200 pt-2 text-xs text-red-800">
+            Only an administrator can override this. Ask an admin to issue the
+            loan.
+          </p>
+        )
+      ) : null}
+    </div>
   );
 }

@@ -10,6 +10,13 @@ import { computeLoanState, deriveStatuses } from "@/lib/loan-calc";
 import { toDbString } from "@/lib/money";
 import { parseIsoDate, nowInTz } from "@/lib/dates";
 import { Role, type InstallmentStatus } from "@/generated/prisma/enums";
+import { recomputeCustomerRisk } from "@/lib/customer-risk";
+import {
+  assessEligibility,
+  bandMeta,
+  type Eligibility,
+  type ScoreReason,
+} from "@/lib/credit-score";
 
 export type LoanActionResult =
   | { ok: true; id: string; redirectTo?: string }
@@ -23,19 +30,66 @@ export type LoanActionResult =
       canOverride?: boolean;
     };
 
-/**
- * A customer is blocked from new loans when an admin has BLACKLIST-flagged them,
- * or the risk meter auto-blacklisted them (90+ days late / defaulted).
- */
-function isBlacklisted(c: {
+function isManualBlacklist(c: { isFlagged: boolean; flagReason: string | null }) {
+  return c.isFlagged && (c.flagReason ?? "").startsWith("BLACKLIST");
+}
+
+/** Fresh eligibility for a customer (recomputes the Lendo Score first). */
+async function eligibilityFor(customer: {
+  id: string;
   isFlagged: boolean;
   flagReason: string | null;
-  autoBlacklisted?: boolean;
-}): boolean {
-  return (
-    !!c.autoBlacklisted ||
-    (c.isFlagged && (c.flagReason ?? "").startsWith("BLACKLIST"))
-  );
+}): Promise<Eligibility | null> {
+  const credit = await recomputeCustomerRisk(customer.id);
+  if (!credit) return null;
+  return assessEligibility(credit, {
+    manualBlacklist: isManualBlacklist(customer),
+    manualBlacklistReason: customer.flagReason,
+  });
+}
+
+export type EligibilityView = {
+  status: Eligibility["status"];
+  blockers: string[];
+  score: number;
+  bandLabel: string;
+  bandColor: string;
+  reasons: ScoreReason[];
+  /** The current user may override a BLOCKED result (administrators only). */
+  canOverride: boolean;
+};
+
+/** Shown on the Issue loan form as soon as a customer is picked. */
+export async function checkLoanEligibility(
+  customerId: string,
+): Promise<{ ok: true; eligibility: EligibilityView } | { ok: false; error: string }> {
+  let user;
+  try {
+    user = await requireRole(...WRITE_ROLES);
+  } catch (err) {
+    if (err instanceof ForbiddenError) return { ok: false, error: err.message };
+    throw err;
+  }
+  const customer = await db.customer.findUnique({
+    where: { id: customerId },
+    select: { id: true, isFlagged: true, flagReason: true },
+  });
+  if (!customer) return { ok: false, error: "Customer not found." };
+  const e = await eligibilityFor(customer);
+  if (!e) return { ok: false, error: "Customer not found." };
+  const meta = bandMeta(e.credit.band);
+  return {
+    ok: true,
+    eligibility: {
+      status: e.status,
+      blockers: e.blockers,
+      score: e.credit.score,
+      bandLabel: meta.label,
+      bandColor: meta.color,
+      reasons: e.credit.reasons,
+      canOverride: user.role === Role.ADMIN,
+    },
+  };
 }
 
 export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
@@ -60,8 +114,10 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
   const customer = await db.customer.findUnique({ where: { id: d.customerId } });
   if (!customer) return { ok: false, error: "Customer not found." };
 
-  // Blacklist gate.
-  if (isBlacklisted(customer)) {
+  // Eligibility gate: low score, a loan late right now, or a blacklist.
+  const eligibility = await eligibilityFor(customer);
+  const blocked = eligibility?.status === "BLOCKED";
+  if (blocked) {
     const canOverride = user.role === Role.ADMIN;
     if (!d.overrideBlacklist) {
       return {
@@ -69,14 +125,14 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
         requiresOverride: true,
         canOverride,
         error: canOverride
-          ? "This customer is blocked (blacklisted or high-risk). Confirm the override to proceed."
-          : "This customer is blocked (blacklisted or high-risk). Only an administrator can issue a loan.",
+          ? "This customer is not eligible. Tick the override and give a reason to issue anyway."
+          : "This customer is not eligible. Only an administrator can override and issue this loan.",
       };
     }
     if (!canOverride) {
       return {
         ok: false,
-        error: "Only an administrator can override a blacklist.",
+        error: "Only an administrator can override eligibility.",
       };
     }
     if (!d.overrideReason?.trim()) {
@@ -127,13 +183,18 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
     },
   });
 
-  if (isBlacklisted(customer) && d.overrideBlacklist) {
+  if (blocked && d.overrideBlacklist) {
     await audit({
       actorId: user.id,
-      action: "loan.blacklist_override",
+      action: "loan.eligibility_override",
       entity: "Loan",
       entityId: loan.id,
-      after: { customerId: customer.id, reason: d.overrideReason },
+      after: {
+        customerId: customer.id,
+        reason: d.overrideReason,
+        score: eligibility?.credit.score,
+        blockers: eligibility?.blockers,
+      },
     });
   }
 

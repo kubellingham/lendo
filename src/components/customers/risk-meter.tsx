@@ -1,7 +1,13 @@
 import { bandMeta } from "@/lib/credit-score";
-import type { CreditScore } from "@/lib/credit-score";
+import type { CreditScore, Eligibility } from "@/lib/credit-score";
 
-export function RiskMeter({ credit }: { credit: CreditScore }) {
+export function RiskMeter({
+  credit,
+  eligibility,
+}: {
+  credit: CreditScore;
+  eligibility?: Eligibility;
+}) {
   const meta = bandMeta(credit.band);
   return (
     <div className="rounded-xl border bg-card p-4 sm:p-5">
@@ -30,21 +36,42 @@ export function RiskMeter({ credit }: { credit: CreditScore }) {
         />
       </div>
 
-      {credit.autoBlacklisted ? (
-        <p className="mt-3 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-800">
-          Auto-blacklisted (90+ days late / defaulted) — new loans require an
-          admin override.
+      {eligibility?.status === "BLOCKED" ? (
+        <div className="mt-3 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-800">
+          <p className="font-medium">
+            Not eligible for a new loan — admin override needed
+          </p>
+          <ul className="mt-0.5 list-disc pl-4">
+            {eligibility.blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      ) : eligibility?.status === "WARNING" ? (
+        <p className="mt-3 rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+          Eligible, but check the record below before lending again.
+        </p>
+      ) : null}
+
+      {credit.reasons.some((r) => r.delta < 0) ? (
+        <p className="mt-3 text-xs font-medium text-slate-700">
+          Why the score is down
         </p>
       ) : null}
 
       {credit.reasons.length > 0 ? (
-        <ul className="mt-3 space-y-1 text-xs">
+        <ul className="mt-1.5 space-y-1 text-xs">
           {credit.reasons.map((r, i) => (
             <li key={i} className="flex justify-between gap-2">
-              <span className="text-muted-foreground">{r.label}</span>
+              <span className="text-muted-foreground">
+                {r.label}
+                {r.faded ? " · half weight (6+ months ago)" : ""}
+              </span>
               <span
                 className={
-                  r.delta >= 0 ? "text-emerald-700" : "text-red-700"
+                  r.delta >= 0
+                    ? "shrink-0 text-emerald-700"
+                    : "shrink-0 text-red-700"
                 }
               >
                 {r.delta > 0 ? `+${r.delta}` : r.delta}

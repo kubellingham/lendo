@@ -20,6 +20,7 @@ const LOAN_INCLUDE = {
 
 function toScoreLoans(
   loans: Array<{
+    id: string;
     principal: unknown;
     status: ScoreLoan["status"];
     interestRatePct: number;
@@ -35,6 +36,7 @@ function toScoreLoans(
   }>,
 ): ScoreLoan[] {
   return loans.map((l) => ({
+    id: l.id,
     principal: String(l.principal),
     status: l.status,
     interestRatePct: l.interestRatePct,

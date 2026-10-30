@@ -19,6 +19,7 @@ import { LoanStatusBadge, FlagBadge } from "@/components/status";
 import { FlagControls } from "@/components/customers/flag-controls";
 import { RiskMeter } from "@/components/customers/risk-meter";
 import { recomputeCustomerRisk } from "@/lib/customer-risk";
+import { assessEligibility } from "@/lib/credit-score";
 import { SendMessage } from "@/components/messaging/send-message";
 import { Avatar } from "@/components/ui/avatar";
 
@@ -173,7 +174,17 @@ export default async function CustomerProfilePage({
         </div>
 
         <div className="space-y-6">
-          {credit ? <RiskMeter credit={credit} /> : null}
+          {credit ? (
+            <RiskMeter
+              credit={credit}
+              eligibility={assessEligibility(credit, {
+                manualBlacklist:
+                  customer.isFlagged &&
+                  (customer.flagReason ?? "").startsWith("BLACKLIST"),
+                manualBlacklistReason: customer.flagReason,
+              })}
+            />
+          ) : null}
           {canWrite ? (
             <Card>
               <CardHeader>
