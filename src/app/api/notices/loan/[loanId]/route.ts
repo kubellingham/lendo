@@ -5,6 +5,7 @@ import { computeLoanState } from "@/lib/loan-calc";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { buildReceiptPdf, type ReceiptDoc, type ReceiptRow } from "@/lib/pdf/receipt";
 import { getPaymentDetails } from "@/lib/settings";
+import { upcomingForLoan, dueWhen } from "@/lib/referral";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -212,6 +213,56 @@ export async function GET(
         footerNote:
           "Kindly remind your referral to clear the outstanding amount as soon as possible.",
         tagline: FORWARD_TAGLINE,
+      };
+      break;
+    }
+    case "referral_upcoming": {
+      // Heads-up to the referral before the next payment is due.
+      const line = upcomingForLoan({
+        ...loan,
+        payments: loan.payments.map((p) => ({
+          amount: p.amount,
+          installmentId: p.installmentId,
+        })),
+      });
+      if (!line) {
+        return new NextResponse("No upcoming payment on this loan", {
+          status: 404,
+        });
+      }
+      const summary: ReceiptRow[] = [
+        { label: "Borrower", value: loan.customer.fullName },
+        { label: "Loan reference", value: loanRef(loan.id) },
+        { label: "Due date", value: formatDate(line.dueDate) },
+        { label: "Due", value: dueWhen(line.daysUntilDue) },
+        ...(line.isFinalCycle
+          ? [{ label: "Final cycle", value: "Full settlement required" }]
+          : [
+              {
+                label: `Minimum due (cycle ${line.cycleNumber} interest)`,
+                value: tsh(line.minimumDue),
+              },
+            ]),
+        {
+          label: "To clear the loan in full",
+          value: tsh(line.settleAmount),
+          strong: true,
+        },
+        ...payRows,
+      ];
+      doc = {
+        ...base,
+        docTitle: "UPCOMING PAYMENT",
+        customerName: loan.customer.referralName || "Referral",
+        customerPhone: loan.customer.referralPhone || "—",
+        summary,
+        highlight: {
+          label: line.isFinalCycle ? "Amount due" : "Minimum due",
+          value: tsh(line.minimumDue),
+        },
+        footerNote:
+          "Kindly remind your referral so the payment is made on time. If it has already been paid, please disregard this notice.",
+        tagline: REPAY_TAGLINE,
       };
       break;
     }

@@ -36,6 +36,7 @@ import {
 import { PaymentActions } from "@/components/payments/payment-actions";
 import { LoanActions } from "@/components/loans/loan-actions";
 import { SendMessage } from "@/components/messaging/send-message";
+import { upcomingForLoan } from "@/lib/referral";
 import { Avatar } from "@/components/ui/avatar";
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -126,6 +127,15 @@ export default async function LoanDetailPage({
               context={{ kind: "loan", loanId: loan.id }}
               allowReferral={
                 loan.status === "OVERDUE" || loan.status === "DEFAULTED"
+              }
+              allowReferralUpcoming={
+                upcomingForLoan({
+                  ...loan,
+                  payments: loan.payments.map((p) => ({
+                    amount: p.amount,
+                    installmentId: p.installmentId,
+                  })),
+                }) !== null
               }
               defaultTemplateKey={
                 loan.status === "SETTLED"

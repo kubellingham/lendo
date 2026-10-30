@@ -9,7 +9,9 @@ export type MessageCategory =
   | "payment"
   | "customer"
   | "referral" // per-loan referral notice (loan context)
-  | "referral_all"; // consolidated referral notice (customer context)
+  | "referral_all" // consolidated referral notice (customer context)
+  | "referral_upcoming" // per-loan heads-up to the referral (loan context)
+  | "referral_upcoming_all"; // all upcoming payments to the referral (customer context)
 
 export type MessageTemplate = {
   key: string;
@@ -314,6 +316,33 @@ _Helping you move forward._`,
     description:
       "One message to the referral covering every overdue/defaulted loan and the total owed.",
     body: `Dear {{referralName}}, your referral {{customerName}} has overdue loans with Lendo. (This message is filled in automatically with each loan and the total.)`,
+  },
+
+  // -------------------------------------------------------------------
+  // 13. Referral — Upcoming payment (per loan). A friendly heads-up to the
+  //     referral before the borrower's next payment is due. The body is
+  //     generated in code (see buildReferralUpcomingMessage).
+  // -------------------------------------------------------------------
+  {
+    key: "referral_upcoming",
+    category: "referral_upcoming",
+    label: "Referral — upcoming payment",
+    description:
+      "Heads-up to the borrower's referral before this loan's next payment is due.",
+    body: `Dear {{referralName}}, your referral {{customerName}} has a Lendo payment coming up. (This message is filled in automatically.)`,
+  },
+
+  // -------------------------------------------------------------------
+  // 14. Referral — All upcoming payments (consolidated). One heads-up
+  //     covering every loan with a payment still to come.
+  // -------------------------------------------------------------------
+  {
+    key: "referral_upcoming_all",
+    category: "referral_upcoming_all",
+    label: "Referral — all upcoming payments",
+    description:
+      "One heads-up to the referral listing every upcoming payment, with the minimum due and the amount to clear.",
+    body: `Dear {{referralName}}, your referral {{customerName}} has Lendo payments coming up. (This message is filled in automatically with each loan.)`,
   },
 ];
 

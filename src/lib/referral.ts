@@ -1,8 +1,12 @@
 import Decimal from "decimal.js";
 import { db } from "@/lib/db";
-import { computeLoanState, deriveStatuses } from "@/lib/loan-calc";
+import {
+  computeLoanState,
+  deriveStatuses,
+  type LoanStateInput,
+} from "@/lib/loan-calc";
 import { money, round2 } from "@/lib/money";
-import { formatDate, nowInTz } from "@/lib/dates";
+import { formatDate, nowInTz, toBusinessDate } from "@/lib/dates";
 
 export type ReferralLoanLine = {
   loanRef: string;
@@ -154,4 +158,162 @@ Thank you for your cooperation and continued support.
 Regards,
 The Lendo Team
 _Helping you move forward._`;
+}
+
+// ---------------------------------------------------------------------------
+// Upcoming payments — a friendly heads-up to the referral *before* the
+// borrower's next payment falls due (the counterpart to the overdue notice).
+// ---------------------------------------------------------------------------
+
+export type UpcomingLine = {
+  loanId: string;
+  loanRef: string;
+  dueDate: Date;
+  daysUntilDue: number;
+  cycleNumber: number;
+  isFinalCycle: boolean;
+  /** Least they can pay by the due date (interest only, or full settlement on the final cycle). */
+  minimumDue: Decimal;
+  /** Paying this clears the loan completely. */
+  settleAmount: Decimal;
+};
+
+export type ReferralUpcoming = {
+  borrowerName: string;
+  referralName: string | null;
+  referralPhone: string | null;
+  loans: UpcomingLine[];
+  totalMinimum: Decimal;
+  totalToSettle: Decimal;
+};
+
+type UpcomingLoanInput = LoanStateInput & {
+  id: string;
+  cyclesAllowed: number;
+};
+
+/**
+ * The next payment on a loan, if it is still upcoming (due today or later).
+ * Returns null for settled loans or loans whose current cycle is already past
+ * due — those belong in the overdue notice instead.
+ */
+export function upcomingForLoan(
+  loan: UpcomingLoanInput,
+  today: Date = toBusinessDate(new Date()),
+): UpcomingLine | null {
+  if (loan.status === "SETTLED" || loan.status === "WRITTEN_OFF") return null;
+  const state = computeLoanState(loan);
+  if (state.isSettled || state.currentCycle == null) return null;
+
+  const inst = loan.installments.find(
+    (i) => i.cycleNumber === state.currentCycle,
+  );
+  if (!inst) return null;
+
+  const daysUntilDue = Math.round(
+    (toBusinessDate(inst.dueDate).getTime() - today.getTime()) / DAY,
+  );
+  if (daysUntilDue < 0) return null;
+
+  const isFinalCycle = inst.cycleNumber >= loan.cyclesAllowed;
+  return {
+    loanId: loan.id,
+    loanRef: loanRef(loan.id),
+    dueDate: inst.dueDate,
+    daysUntilDue,
+    cycleNumber: inst.cycleNumber,
+    isFinalCycle,
+    minimumDue: isFinalCycle ? state.settlementAmountNow : state.interestOnlyNow,
+    settleAmount: state.settlementAmountNow,
+  };
+}
+
+/** Every upcoming (not yet overdue) payment for a borrower, for their referral. */
+export async function getReferralUpcoming(
+  customerId: string,
+): Promise<ReferralUpcoming | null> {
+  const customer = await db.customer.findUnique({
+    where: { id: customerId },
+    include: {
+      loans: {
+        where: { status: { notIn: ["SETTLED", "WRITTEN_OFF"] } },
+        include: {
+          installments: { orderBy: { cycleNumber: "asc" } },
+          payments: { select: { amount: true, installmentId: true } },
+        },
+      },
+    },
+  });
+  if (!customer) return null;
+
+  const today = toBusinessDate(new Date());
+  const loans = customer.loans
+    .map((l) => upcomingForLoan(l, today))
+    .filter((l): l is UpcomingLine => l !== null)
+    .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+
+  return {
+    borrowerName: customer.fullName,
+    referralName: customer.referralName,
+    referralPhone: customer.referralPhone,
+    loans,
+    totalMinimum: round2(
+      loans.reduce((s, l) => s.plus(l.minimumDue), money(0)),
+    ),
+    totalToSettle: round2(
+      loans.reduce((s, l) => s.plus(l.settleAmount), money(0)),
+    ),
+  };
+}
+
+/** "today" / "tomorrow" / "in 5 days" */
+export function dueWhen(days: number): string {
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  return `in ${days} days`;
+}
+
+/** WhatsApp heads-up to the referral about upcoming payment(s). */
+export function buildReferralUpcomingMessage(
+  d: Pick<ReferralUpcoming, "borrowerName" | "referralName" | "loans" | "totalMinimum" | "totalToSettle">,
+  pay?: { bank: string; accountName: string; accountNumber: string },
+): string {
+  const count = d.loans.length;
+  const single = count === 1;
+
+  const lines = d.loans
+    .map((l, i) => {
+      const head = `${single ? "" : `${i + 1}. `}*${l.loanRef}* — due ${formatDate(l.dueDate)} (${dueWhen(l.daysUntilDue)})`;
+      const detail = l.isFinalCycle
+        ? `   • Amount due (final cycle — full settlement): TSh ${num(l.settleAmount)}`
+        : `   • Minimum due (interest for cycle ${l.cycleNumber}): TSh ${num(l.minimumDue)}\n   • To clear the loan in full: TSh ${num(l.settleAmount)}`;
+      return `${head}\n${detail}`;
+    })
+    .join("\n\n");
+
+  const intro = single
+    ? `has a Lendo loan payment coming up ${dueWhen(d.loans[0].daysUntilDue)}`
+    : `has ${count} Lendo loan payments coming up`;
+
+  const totals = single
+    ? ""
+    : `\n\n*Minimum due across all loans: TSh ${num(d.totalMinimum)}*\nTo clear everything: TSh ${num(d.totalToSettle)}`;
+
+  const payBlock = pay
+    ? `\n\n*How they can pay*\n• Bank: ${pay.bank}\n• Account name: ${pay.accountName}\n• Account number: ${pay.accountNumber}`
+    : "";
+
+  return `Dear ${d.referralName || "referrer"},
+
+A friendly heads-up — your referral, *${d.borrowerName}*, ${intro}:
+
+${lines}${totals}${payBlock}
+
+We'd appreciate it if you could gently remind them so the payment is made on time. If it has already been paid, please disregard this message.
+
+Thank you for your continued support.
+
+Regards,
+The Lendo Team
+_Borrow with confidence. Repay with ease._`;
 }

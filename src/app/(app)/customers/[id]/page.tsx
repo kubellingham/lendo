@@ -81,6 +81,9 @@ export default async function CustomerProfilePage({
               allowReferral={customer.loans.some(
                 (l) => l.status === "OVERDUE" || l.status === "DEFAULTED",
               )}
+              allowReferralUpcoming={customer.loans.some(
+                (l) => l.status === "ACTIVE",
+              )}
             />
             {canWrite ? (
               <>

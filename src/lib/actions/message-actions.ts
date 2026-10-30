@@ -5,7 +5,13 @@ import { requireUser } from "@/lib/rbac";
 import { computeLoanState } from "@/lib/loan-calc";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { getTemplate, renderMessage } from "@/lib/message-templates";
-import { getReferralOverdue, buildReferralMessage } from "@/lib/referral";
+import {
+  getReferralOverdue,
+  buildReferralMessage,
+  getReferralUpcoming,
+  upcomingForLoan,
+  buildReferralUpcomingMessage,
+} from "@/lib/referral";
 import { getPaymentDetails } from "@/lib/settings";
 
 export type MessagePreview = {
@@ -71,6 +77,42 @@ export async function previewLoanMessage(
       installments: loan.installments,
       payments: loan.payments,
     });
+
+    // Upcoming-payment heads-up to the referral (built in code, not a template).
+    if (templateKey === "referral_upcoming") {
+      if (!loan.customer.referralPhone) {
+        return {
+          ok: false,
+          error:
+            "No referral is on file for this customer. Add a referral (name + phone) on the customer profile first.",
+        };
+      }
+      const line = upcomingForLoan(loan);
+      if (!line) {
+        return {
+          ok: false,
+          error:
+            "This loan has no upcoming payment — it is either settled or already past due. Use the referral overdue notice instead.",
+        };
+      }
+      const pay = await getPaymentDetails();
+      return {
+        ok: true,
+        message: buildReferralUpcomingMessage(
+          {
+            borrowerName: loan.customer.fullName,
+            referralName: loan.customer.referralName,
+            loans: [line],
+            totalMinimum: line.minimumDue,
+            totalToSettle: line.settleAmount,
+          },
+          pay,
+        ),
+        customerName: loan.customer.referralName || "Referral",
+        phoneE164: loan.customer.referralPhone,
+        loanRef: line.loanRef,
+      };
+    }
 
     const currentInst = loan.installments.find(
       (i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID",
@@ -255,6 +297,33 @@ export async function previewCustomerMessage(
       return {
         ok: true,
         message: buildReferralMessage(summary, pay),
+        customerName: summary.referralName || "Referral",
+        phoneE164: summary.referralPhone,
+        loanRef: null,
+      };
+    }
+
+    // Consolidated heads-up: every upcoming payment for this borrower.
+    if (templateKey === "referral_upcoming_all") {
+      const summary = await getReferralUpcoming(customerId);
+      if (!summary) return { ok: false, error: "Customer not found." };
+      if (!summary.referralPhone) {
+        return {
+          ok: false,
+          error:
+            "No referral is on file for this customer. Add a referral (name + phone) on the customer profile first.",
+        };
+      }
+      if (summary.loans.length === 0) {
+        return {
+          ok: false,
+          error: `${summary.borrowerName} has no upcoming payments right now.`,
+        };
+      }
+      const pay = await getPaymentDetails();
+      return {
+        ok: true,
+        message: buildReferralUpcomingMessage(summary, pay),
         customerName: summary.referralName || "Referral",
         phoneE164: summary.referralPhone,
         loanRef: null,

@@ -35,9 +35,9 @@ type Context =
   | { kind: "customer"; customerId: string };
 
 const CATEGORY_BY_KIND: Record<Context["kind"], MessageCategory[]> = {
-  loan: ["loan", "referral"],
+  loan: ["loan", "referral", "referral_upcoming"],
   payment: ["payment"],
-  customer: ["customer", "referral_all"],
+  customer: ["customer", "referral_all", "referral_upcoming_all"],
 };
 
 function waLink(phoneE164: string, text: string): string {
@@ -61,6 +61,9 @@ function pdfHref(context: Context, key: string): string | null {
   if (context.kind === "customer" && key === "referral_overdue_all") {
     return `/api/notices/referral/${context.customerId}`;
   }
+  if (context.kind === "customer" && key === "referral_upcoming_all") {
+    return `/api/notices/referral/${context.customerId}?type=upcoming`;
+  }
   return null;
 }
 
@@ -71,6 +74,7 @@ export function SendMessage({
   triggerSize = "sm",
   defaultTemplateKey,
   allowReferral = false,
+  allowReferralUpcoming = false,
 }: {
   context: Context;
   triggerLabel?: string;
@@ -80,10 +84,19 @@ export function SendMessage({
   // Referral notices only make sense when the borrower is behind — the caller
   // passes true only when there's an overdue/defaulted loan to chase.
   allowReferral?: boolean;
+  // Upcoming-payment heads-ups to the referral — true when a loan has a
+  // payment still to come (not yet overdue).
+  allowReferralUpcoming?: boolean;
 }) {
   const available = MESSAGE_TEMPLATES.filter((t) => {
     if (!CATEGORY_BY_KIND[context.kind].includes(t.category)) return false;
     if ((t.category === "referral" || t.category === "referral_all") && !allowReferral)
+      return false;
+    if (
+      (t.category === "referral_upcoming" ||
+        t.category === "referral_upcoming_all") &&
+      !allowReferralUpcoming
+    )
       return false;
     return true;
   });
