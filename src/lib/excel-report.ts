@@ -111,6 +111,52 @@ export type MonthTotals = {
   owedAtEnd: number;
 };
 
+/** One line in a person's loan table: a round, a payment, or a status note. */
+export type RoundLine = {
+  round: string; // "" on extra payment lines of the same round
+  dueDate: Date | null;
+  opening: number | null; // balance at the start of the round
+  minimumDue: number | null; // interest, or full settlement on the final round
+  paidOn: Date | null;
+  paid: number | null;
+  profit: number | null;
+  principal: number | null;
+  status: string;
+  tone: "ok" | "late" | "overdue" | "muted" | "neutral";
+};
+
+export type PersonLoan = {
+  ref: string;
+  givenOn: Date;
+  amount: number;
+  ratePct: number;
+  rounds: number;
+  finalDue: Date;
+  status: string;
+  givenBy: string;
+  lines: RoundLine[];
+  totalPaid: number;
+  profit: number;
+  principalPaid: number;
+  stillOwes: number;
+};
+
+export type PersonBlock = {
+  name: string;
+  phone: string;
+  score: number;
+  band: string;
+  referral: string | null;
+  loans: PersonLoan[];
+  borrowed: number;
+  paid: number;
+  profit: number;
+  owes: number;
+  latePayments: number;
+  /** e.g. "OVERDUE 12 days" when a round is past due right now, else "". */
+  alert: string;
+};
+
 export type BusinessReport = {
   periodLabel: string;
   fileLabel: string;
@@ -119,6 +165,15 @@ export type BusinessReport = {
   months: MonthTotals[];
   loans: LoanRow[];
   payments: PaymentRow[];
+  people: PersonBlock[];
+};
+
+const BAND_LABEL: Record<string, string> = {
+  EXCELLENT: "Excellent",
+  GOOD: "Good",
+  WATCH: "Watch",
+  HIGH_RISK: "High risk",
+  CRITICAL: "Critical",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -150,8 +205,9 @@ export async function gatherBusinessReport(
   const start = monthStart(months[0]);
   const end = monthStart(nextMonth(months[months.length - 1]));
 
+  // All loans: the period figures filter by date below, and each person's
+  // block shows their full history.
   const loansRaw = await db.loan.findMany({
-    where: { disbursedAt: { lt: end } },
     orderBy: { disbursedAt: "asc" },
     include: {
       customer: {
@@ -188,6 +244,8 @@ export async function gatherBusinessReport(
 
   const loanRows: LoanRow[] = [];
   const paymentRows: PaymentRow[] = [];
+  const today = toBusinessDate(new Date());
+  const people = new Map<string, { include: boolean; block: PersonBlock }>();
   const totals = new Map<string, MonthTotals>(
     months.map((k) => [
       monthLabel(k),
@@ -214,6 +272,44 @@ export async function gatherBusinessReport(
     });
     const ref = loanRef(loan.id);
     const cycleById = new Map(loan.installments.map((i) => [i.id, i.cycleNumber]));
+
+    // ---- Per-person detail (full history of this loan)
+    const inPeriod =
+      (loan.disbursedAt >= start && loan.disbursedAt < end) ||
+      loan.payments.some((p) => p.paidAt >= start && p.paidAt < end);
+    const owesNow =
+      loan.status !== "WRITTEN_OFF" && !all.isSettled && all.principalOutstanding.gt(0);
+    const person =
+      people.get(loan.customer.id) ??
+      people
+        .set(loan.customer.id, {
+          include: false,
+          block: {
+            name: loan.customer.fullName,
+            phone: loan.customer.phone,
+            score: loan.customer.riskScore,
+            band: BAND_LABEL[loan.customer.riskBand] ?? loan.customer.riskBand,
+            referral: loan.customer.referralName,
+            loans: [],
+            borrowed: 0,
+            paid: 0,
+            profit: 0,
+            owes: 0,
+            latePayments: 0,
+            alert: "",
+          },
+        })
+        .get(loan.customer.id)!;
+    if (inPeriod || owesNow) person.include = true;
+    const pl = personLoan(loan, all, interestByPayment, ref, today);
+    person.block.loans.push(pl);
+    person.block.borrowed += pl.amount;
+    person.block.paid += pl.totalPaid;
+    person.block.profit += pl.profit;
+    person.block.owes += pl.stillOwes;
+    person.block.latePayments += pl.lines.filter((l) => l.tone === "late").length;
+    const overdue = pl.lines.find((l) => l.tone === "overdue");
+    if (overdue && !person.block.alert) person.block.alert = overdue.status;
 
     if (loan.disbursedAt >= start && loan.disbursedAt < end) {
       const label = monthLabel(keyOf(loan.disbursedAt));
@@ -308,6 +404,122 @@ export async function gatherBusinessReport(
     })),
     loans: loanRows,
     payments: paymentRows,
+    people: [...people.values()]
+      .filter((x) => x.include)
+      .map((x) => x.block)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+/** A loan's full story, round by round, with every payment against it. */
+function personLoan(
+  loan: LoanFull & { status: string; issuedBy: { name: string } },
+  all: ReturnType<typeof computeLoanState>,
+  interestByPayment: Map<string, Decimal>,
+  ref: string,
+  today: Date,
+): PersonLoan {
+  const lines: RoundLine[] = [];
+  const settled = all.isSettled;
+  const byInst = new Map<string, LoanFull["payments"]>();
+  const loose: LoanFull["payments"] = [];
+  for (const p of [...loan.payments].sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime())) {
+    if (p.installmentId) {
+      (byInst.get(p.installmentId) ?? byInst.set(p.installmentId, []).get(p.installmentId)!).push(p);
+    } else loose.push(p);
+  }
+
+  let totalPaid = money(0);
+  let profit = money(0);
+  const payLine = (p: LoanFull["payments"][number], due: Date | null): Omit<RoundLine, "round" | "dueDate" | "opening" | "minimumDue"> => {
+    const amt = money(p.amount);
+    const prof = interestByPayment.get(p.id) ?? money(0);
+    totalPaid = totalPaid.plus(amt);
+    profit = profit.plus(prof);
+    const timing = timingLabel(due, p.paidAt);
+    return {
+      paidOn: toBusinessDate(p.paidAt),
+      paid: amt.toNumber(),
+      profit: n(prof),
+      principal: n(amt.minus(prof)),
+      status: timing,
+      tone: timing.includes("late") ? "late" : "ok",
+    };
+  };
+
+  for (const inst of loan.installments) {
+    const isFinal = inst.cycleNumber === loan.cyclesAllowed;
+    const extra = inst.cycleNumber > loan.cyclesAllowed;
+    const opening = all.perInstallmentOpeningPrincipal[inst.id] ?? money(0);
+    const owed = all.perInstallmentInterestOwed[inst.id] ?? money(0);
+    const paidHere = all.perInstallmentPaid[inst.id] ?? money(0);
+    const minimum = isFinal ? opening.plus(owed) : owed;
+    const label = `Round ${inst.cycleNumber}${extra ? " (extra)" : isFinal ? " (final)" : ""}`;
+    const head = {
+      round: label,
+      dueDate: inst.dueDate,
+      opening: n(opening),
+      minimumDue: n(minimum),
+    };
+    const pmts = byInst.get(inst.id) ?? [];
+
+    // Nothing was owed: the loan was already cleared before this round.
+    if (owed.lte(0) && pmts.length === 0) {
+      lines.push({
+        ...head, opening: null, minimumDue: null,
+        paidOn: null, paid: null, profit: null, principal: null,
+        status: "Not needed — loan already cleared", tone: "muted",
+      });
+      continue;
+    }
+
+    pmts.forEach((p, i) => {
+      const base = i === 0 ? head : { round: "", dueDate: null, opening: null, minimumDue: null };
+      lines.push({ ...base, ...payLine(p, inst.dueDate) });
+    });
+
+    // Is this round still open?
+    const covered = settled || owed.lte(0) || paidHere.gte(isFinal ? minimum : owed);
+    if (!covered) {
+      const days = Math.round((today.getTime() - toBusinessDate(inst.dueDate).getTime()) / DAY);
+      const left = n((isFinal ? minimum : owed).minus(paidHere));
+      const status =
+        days > 0
+          ? `OVERDUE ${days} day(s) — TSh ${left.toLocaleString("en-US")} unpaid`
+          : days === 0
+            ? `Due today — TSh ${left.toLocaleString("en-US")}`
+            : `Not due yet (in ${-days} day(s))`;
+      const tone: RoundLine["tone"] = days > 0 ? "overdue" : "neutral";
+      if (pmts.length === 0) {
+        lines.push({ ...head, paidOn: null, paid: null, profit: null, principal: null, status, tone });
+      } else {
+        lines.push({
+          round: "", dueDate: null, opening: null, minimumDue: null,
+          paidOn: null, paid: null, profit: null, principal: null,
+          status: `Part paid — ${status}`, tone,
+        });
+      }
+    }
+  }
+
+  for (const p of loose) {
+    lines.push({ round: "Other payment", dueDate: null, opening: null, minimumDue: null, ...payLine(p, null) });
+  }
+
+  return {
+    ref,
+    givenOn: loan.disbursedAt,
+    amount: money(loan.principal).toNumber(),
+    ratePct: loan.interestRatePct,
+    rounds: loan.cyclesAllowed,
+    finalDue: loan.dueAt,
+    status: STATUS_LABEL[loan.status] ?? loan.status,
+    givenBy: loan.issuedBy.name,
+    lines,
+    totalPaid: n(totalPaid),
+    profit: n(profit),
+    principalPaid: n(totalPaid.minus(profit)),
+    stillOwes: n(settled || loan.status === "WRITTEN_OFF" ? money(0) : all.settlementAmountNow),
   };
 }
 
@@ -362,6 +574,7 @@ export async function buildBusinessWorkbook(r: BusinessReport): Promise<Buffer> 
 
   // ---- Sheet 3: Loans given (built first so Summary formulas can refer to it)
   const wsSum = wb.addWorksheet("Summary", { views: [{ showGridLines: false }] });
+  const wsPeople = wb.addWorksheet("By borrower", { views: [{ showGridLines: false }] });
   const wsMonth = wb.addWorksheet("Month by month", { views: [{ showGridLines: false }] });
   const wsLoans = wb.addWorksheet("Loans given", { views: [{ state: "frozen", ySplit: 5 }] });
   const wsPay = wb.addWorksheet("Payments received", { views: [{ state: "frozen", ySplit: 5 }] });
@@ -631,11 +844,175 @@ export async function buildBusinessWorkbook(r: BusinessReport): Promise<Buffer> 
     rn += 3;
   }
 
+  buildPeopleSheet(wsPeople, r, sub);
+
   wsSum.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+  wsPeople.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
   wsMonth.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
   wsLoans.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
   wsPay.pageSetup = { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
 
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf as ArrayBuffer);
+}
+
+// ---------------------------------------------------------------------------
+// "By borrower" — who's who index, then one block per person
+// ---------------------------------------------------------------------------
+
+const TONE_FONT: Record<RoundLine["tone"], Partial<ExcelJS.Font>> = {
+  ok: { color: { argb: "FF166534" } },
+  late: { color: { argb: "FFB91C1C" } },
+  overdue: { color: { argb: "FFB91C1C" }, bold: true },
+  muted: { color: { argb: "FF94A3B8" }, italic: true },
+  neutral: { color: { argb: "FF475569" } },
+};
+
+function fill(cell: ExcelJS.Cell, argb: string) {
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+}
+
+function fmtTsh(v: number): string {
+  return `TSh ${v.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+}
+
+function buildPeopleSheet(ws: ExcelJS.Worksheet, r: BusinessReport, sub: string[]) {
+  title(ws, "By borrower", [
+    ...sub,
+    "Everyone who borrowed or paid in this period, plus anyone who still owes. Each person's full loan history is shown. Click a name to jump to it.",
+  ]);
+  [16, 13, 15, 15, 13, 15, 15, 15, 44].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+
+  if (r.people.length === 0) {
+    ws.getCell("A6").value = "No borrowers to show for this period.";
+    return;
+  }
+
+  // Work out where each person's block will start, so the index can link to it.
+  const INDEX_HEAD = 6;
+  let rn = INDEX_HEAD + r.people.length + 2 /* total row + gap */ + 2;
+  const startRow: number[] = [];
+  for (const person of r.people) {
+    startRow.push(rn);
+    rn += 2; // name band + summary line
+    for (const loan of person.loans) rn += 1 + 1 + loan.lines.length + 1 + 1; // loan line, header, lines, total, gap
+    rn += 1; // gap after person
+  }
+
+  // ---- Index
+  headerRow(ws, INDEX_HEAD, [
+    "Borrower", "Phone", "Loans", "Borrowed", "Paid back", "Profit (interest)",
+    "Still owes", "Late payments", "Right now",
+  ]);
+  r.people.forEach((p, i) => {
+    const row = ws.getRow(INDEX_HEAD + 1 + i);
+    row.getCell(1).value = { text: p.name, hyperlink: `#'By borrower'!A${startRow[i]}` };
+    row.getCell(1).font = { color: { argb: "FF1D4ED8" }, underline: true };
+    row.getCell(2).value = p.phone;
+    row.getCell(3).value = p.loans.length;
+    row.getCell(4).value = p.borrowed;
+    row.getCell(5).value = p.paid;
+    row.getCell(6).value = p.profit;
+    row.getCell(7).value = p.owes;
+    row.getCell(8).value = p.latePayments;
+    row.getCell(9).value = p.alert || (p.owes > 0 ? "Paying — nothing overdue" : "All paid up");
+    row.getCell(9).font = p.alert ? TONE_FONT.overdue : TONE_FONT.ok;
+    row.getCell(9).alignment = { horizontal: "left", indent: 1 };
+    for (const c of [4, 5, 6, 7]) row.getCell(c).numFmt = MONEY;
+    fill(row.getCell(6), PROFIT_FILL);
+  });
+  const idxLast = INDEX_HEAD + r.people.length;
+  const tot = ws.getRow(idxLast + 1);
+  tot.getCell(1).value = "TOTAL";
+  const sums: Record<number, number> = {
+    3: r.people.reduce((s, p) => s + p.loans.length, 0),
+    4: r.people.reduce((s, p) => s + p.borrowed, 0),
+    5: r.people.reduce((s, p) => s + p.paid, 0),
+    6: r.people.reduce((s, p) => s + p.profit, 0),
+    7: r.people.reduce((s, p) => s + p.owes, 0),
+    8: r.people.reduce((s, p) => s + p.latePayments, 0),
+  };
+  for (const c of [3, 4, 5, 6, 7, 8]) {
+    const C = colLetter(c);
+    tot.getCell(c).value = { formula: `SUM(${C}${INDEX_HEAD + 1}:${C}${idxLast})`, result: sums[c] };
+    if (c >= 4 && c <= 7) tot.getCell(c).numFmt = MONEY;
+  }
+  tot.font = { bold: true };
+  for (let c = 1; c <= 9; c++) {
+    fill(tot.getCell(c), BAND_FILL);
+    tot.getCell(c).border = { top: { style: "thin" } };
+  }
+
+  // ---- One block per person
+  r.people.forEach((p, i) => {
+    let row = startRow[i];
+    const band = ws.getRow(row);
+    band.getCell(1).value = p.name.toUpperCase();
+    band.getCell(3).value = p.phone;
+    band.getCell(5).value = `Lendo Score ${p.score} (${p.band})`;
+    band.getCell(7).value = p.referral ? `Referral: ${p.referral}` : "";
+    for (let c = 1; c <= 9; c++) {
+      fill(band.getCell(c), BRAND);
+      band.getCell(c).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    }
+    band.height = 20;
+    row++;
+    const summary = ws.getRow(row);
+    summary.getCell(1).value =
+      `${p.loans.length} loan(s) · Borrowed ${fmtTsh(p.borrowed)} · Paid back ${fmtTsh(p.paid)} · ` +
+      `Profit from them ${fmtTsh(p.profit)} · Still owes ${fmtTsh(p.owes)} · Late payments: ${p.latePayments}` +
+      (p.alert ? ` · ${p.alert}` : "");
+    summary.getCell(1).font = p.alert ? TONE_FONT.overdue : { bold: true, color: { argb: "FF334155" } };
+    row++;
+
+    for (const loan of p.loans) {
+      const head = ws.getRow(row);
+      head.getCell(1).value =
+        `Loan ${loan.ref} · Asked & given ${formatDate(loan.givenOn)} · ${fmtTsh(loan.amount)} · ` +
+        `${loan.ratePct}% per round · ${loan.rounds} rounds · final due ${formatDate(loan.finalDue)} · ` +
+        `${loan.status} · given by ${loan.givenBy}`;
+      head.getCell(1).font = { bold: true };
+      for (let c = 1; c <= 9; c++) fill(head.getCell(c), BAND_FILL);
+      row++;
+
+      headerRow(ws, row, [
+        "Round", "Due date", "Balance at start", "Minimum due", "Paid on",
+        "Amount paid", "Profit (interest)", "Principal", "Status",
+      ]);
+      ws.getRow(row).height = 18;
+      row++;
+
+      const first = row;
+      for (const l of loan.lines) {
+        const lr = ws.getRow(row);
+        lr.values = [
+          l.round, l.dueDate ?? null, l.opening, l.minimumDue, l.paidOn ?? null,
+          l.paid, l.profit, l.principal, l.status,
+        ];
+        for (const c of [2, 5]) lr.getCell(c).numFmt = DATE;
+        for (const c of [3, 4, 6, 7, 8]) lr.getCell(c).numFmt = MONEY;
+        for (const c of [1, 2]) lr.getCell(c).alignment = { horizontal: "left" };
+        lr.getCell(5).alignment = { horizontal: "left", indent: 1 };
+        lr.getCell(9).alignment = { horizontal: "left", indent: 1 };
+        lr.getCell(9).font = TONE_FONT[l.tone];
+        if (l.profit != null) fill(lr.getCell(7), PROFIT_FILL);
+        if (l.tone === "muted") for (const c of [1, 2]) lr.getCell(c).font = TONE_FONT.muted;
+        row++;
+      }
+
+      const lt = ws.getRow(row);
+      lt.getCell(5).value = "Loan total";
+      for (const [c, v] of [[6, loan.totalPaid], [7, loan.profit], [8, loan.principalPaid]] as const) {
+        const C = colLetter(c);
+        lt.getCell(c).value = { formula: `SUM(${C}${first}:${C}${row - 1})`, result: v };
+        lt.getCell(c).numFmt = MONEY;
+      }
+      lt.getCell(9).alignment = { horizontal: "left", indent: 1 };
+      lt.getCell(9).value = loan.stillOwes > 0 ? `Still owes ${fmtTsh(loan.stillOwes)} today` : "Fully paid";
+      lt.font = { bold: true };
+      lt.getCell(9).font = loan.stillOwes > 0 ? { bold: true, color: { argb: "FFB45309" } } : { bold: true, color: { argb: "FF166534" } };
+      for (let c = 5; c <= 9; c++) lt.getCell(c).border = { top: { style: "thin" } };
+      row += 2;
+    }
+  });
 }

@@ -218,9 +218,10 @@ export default async function ReportsPage({
           <p className="mb-3 text-sm text-muted-foreground">
             An Excel file to share with anyone who prefers spreadsheets: a
             month-by-month summary of money lent out, money received and profit
-            (interest), plus every loan (who borrowed, when, how much) and every
-            payment (who paid, when, which round, how much was profit). Totals
-            are Excel formulas, so every figure can be checked line by line.
+            (interest), a page per borrower (when they borrowed, every round,
+            when and how much they paid, what is late or still owed), plus every
+            loan and every payment. Totals are Excel formulas, so every figure
+            can be checked line by line.
           </p>
           <ExcelDownload />
         </CardContent>
