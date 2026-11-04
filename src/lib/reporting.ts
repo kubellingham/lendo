@@ -68,7 +68,7 @@ export function periodRange(spec: PeriodSpec): {
   };
 }
 
-type LoanFull = {
+export type LoanFull = {
   id: string;
   principal: Decimal;
   interestRatePct: number;
@@ -109,7 +109,7 @@ export function loanRef(id: string): string {
 }
 
 /** Interest portion of each payment (interest is covered before principal). */
-function attributeInterest(loan: LoanFull): Map<string, Decimal> {
+export function attributeInterest(loan: LoanFull): Map<string, Decimal> {
   const state = computeLoanState({
     principal: loan.principal,
     status: "ACTIVE",
