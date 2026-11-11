@@ -4,7 +4,10 @@ import {
   rgb,
   type PDFFont,
   type PDFPage,
+  type PDFImage,
 } from "pdf-lib";
+import type { Branding } from "@/lib/settings";
+import { contactLine, DEFAULT_BRANDING, drawLogoTile, embedLogo, fit, nameLine, wrap } from "@/lib/pdf/brand";
 
 // Brand palette (kept in sync with the app's slate/emerald look).
 const INK = rgb(0.06, 0.09, 0.16); // slate-900
@@ -48,6 +51,8 @@ type Ctx = {
   font: PDFFont;
   bold: PDFFont;
   y: number;
+  brand: Branding;
+  logo: PDFImage | null;
 };
 
 function ensureSpace(ctx: Ctx, needed: number) {
@@ -58,7 +63,7 @@ function ensureSpace(ctx: Ctx, needed: number) {
 }
 
 function drawHeader(ctx: Ctx, docTitle: string) {
-  const { page, bold, font } = ctx;
+  const { page, bold, font, brand, logo } = ctx;
   // Brand band.
   page.drawRectangle({
     x: 0,
@@ -67,20 +72,29 @@ function drawHeader(ctx: Ctx, docTitle: string) {
     height: 96,
     color: BRAND_DARK,
   });
-  page.drawText("LENDO", {
-    x: MARGIN,
+  // Logo (on a white tile) then the business name and tagline.
+  let nameX = MARGIN;
+  if (logo) nameX += drawLogoTile(page, logo, MARGIN, PAGE_H - 48, 54) + 14;
+  // Leave room for the title, stamp and contacts on the right.
+  const maxNameW = PAGE_W - MARGIN - 185 - nameX;
+  page.drawText(fit(bold, brand.name.toUpperCase(), logo ? 22 : 26, maxNameW), {
+    x: nameX,
     y: PAGE_H - 56,
-    size: 26,
+    size: logo ? 22 : 26,
     font: bold,
     color: WHITE,
   });
-  page.drawText("Borrow with confidence. Repay with ease.", {
-    x: MARGIN,
-    y: PAGE_H - 74,
-    size: 9,
-    font,
-    color: rgb(0.7, 0.75, 0.78),
-  });
+  if (brand.tagline) {
+    wrap(font, brand.tagline, 9, maxNameW).forEach((line, i) => {
+      page.drawText(line, {
+        x: nameX,
+        y: PAGE_H - 72 - i * 11,
+        size: 9,
+        font,
+        color: rgb(0.7, 0.75, 0.78),
+      });
+    });
+  }
   // Document title (right aligned).
   const titleWidth = bold.widthOfTextAtSize(docTitle, 14);
   page.drawText(docTitle, {
@@ -100,6 +114,17 @@ function drawHeader(ctx: Ctx, docTitle: string) {
     font,
     color: rgb(0.7, 0.75, 0.78),
   });
+  const contacts = contactLine(brand);
+  if (contacts) {
+    const c = fit(font, contacts, 8, PAGE_W / 2 - MARGIN - 20);
+    page.drawText(c, {
+      x: PAGE_W - MARGIN - font.widthOfTextAtSize(c, 8),
+      y: PAGE_H - 84,
+      size: 8,
+      font,
+      color: rgb(0.7, 0.75, 0.78),
+    });
+  }
   ctx.y = PAGE_H - 96 - 34;
 }
 
@@ -272,8 +297,9 @@ function drawFooter(ctx: Ctx, d: ReceiptDoc) {
       font: ctx.font,
       color: MUTED,
     });
-    p.drawText("Lendo  ·  Dar es Salaam, Tanzania", {
-      x: PAGE_W - MARGIN - ctx.font.widthOfTextAtSize("Lendo  ·  Dar es Salaam, Tanzania", 8),
+    const place = fit(ctx.font, nameLine(ctx.brand), 8, PAGE_W / 2 - MARGIN);
+    p.drawText(place, {
+      x: PAGE_W - MARGIN - ctx.font.widthOfTextAtSize(place, 8),
       y: 54,
       size: 8,
       font: ctx.font,
@@ -282,15 +308,27 @@ function drawFooter(ctx: Ctx, d: ReceiptDoc) {
   });
 }
 
-export async function buildReceiptPdf(d: ReceiptDoc): Promise<Uint8Array> {
+/** Branding from Settings (falls back to the defaults if it can't be read). */
+async function loadBranding(): Promise<Branding> {
+  try {
+    const { getBranding } = await import("@/lib/settings");
+    return await getBranding();
+  } catch {
+    return DEFAULT_BRANDING;
+  }
+}
+
+export async function buildReceiptPdf(d: ReceiptDoc, brandIn?: Branding): Promise<Uint8Array> {
+  const brand = brandIn ?? (await loadBranding());
   const doc = await PDFDocument.create();
   doc.setTitle(`${d.docTitle} ${d.reference}`);
-  doc.setAuthor("Lendo");
-  doc.setProducer("Lendo");
+  doc.setAuthor(brand.name);
+  doc.setProducer(brand.name);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const logo = await embedLogo(doc, brand);
   const page = doc.addPage([PAGE_W, PAGE_H]);
-  const ctx: Ctx = { doc, page, font, bold, y: PAGE_H - MARGIN };
+  const ctx: Ctx = { doc, page, font, bold, y: PAGE_H - MARGIN, brand, logo };
 
   drawHeader(ctx, d.docTitle);
   drawMetaAndCustomer(ctx, d);

@@ -4,11 +4,13 @@ import Link from "next/link";
 import { requireRole } from "@/lib/rbac";
 import { audit } from "@/lib/audit";
 import {
+  getBranding,
   getTitheRatePct,
   getPaymentDetails,
   setSetting,
   SETTING_KEYS,
 } from "@/lib/settings";
+import { LogoUpload } from "@/components/settings/logo-upload";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,10 +24,40 @@ export default async function SettingsPage({
 }) {
   await requireRole("ADMIN");
   const sp = await searchParams;
-  const [titheRate, payment] = await Promise.all([
+  const [titheRate, payment, brand] = await Promise.all([
     getTitheRatePct(),
     getPaymentDetails(),
+    getBranding(),
   ]);
+
+  async function saveBranding(formData: FormData) {
+    "use server";
+    const admin = await requireRole("ADMIN");
+    const v = (k: string, max = 120) => String(formData.get(k) ?? "").trim().slice(0, max);
+    const next = {
+      name: v("brandName", 60) || "Lendo",
+      tagline: v("brandTagline"),
+      phone: v("brandPhone", 40),
+      email: v("brandEmail", 80),
+      town: v("brandTown", 80),
+    };
+    await Promise.all([
+      setSetting(SETTING_KEYS.brandName, next.name),
+      setSetting(SETTING_KEYS.brandTagline, next.tagline),
+      setSetting(SETTING_KEYS.brandPhone, next.phone),
+      setSetting(SETTING_KEYS.brandEmail, next.email),
+      setSetting(SETTING_KEYS.brandTown, next.town),
+    ]);
+    await audit({
+      actorId: admin.id,
+      action: "settings.update",
+      entity: "Setting",
+      entityId: "branding",
+      after: next,
+    });
+    revalidatePath("/settings");
+    redirect("/settings?saved=1");
+  }
 
   async function savePaymentDetails(formData: FormData) {
     "use server";
@@ -83,6 +115,50 @@ export default async function SettingsPage({
           Settings saved.
         </div>
       ) : null}
+
+      <Card className="mb-6 max-w-xl">
+        <CardHeader>
+          <CardTitle>Branding on PDFs</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <p className="text-sm text-muted-foreground">
+            Shown on receipts, statements, notices and reports. Empty fields are left off the PDF.
+          </p>
+          <LogoUpload current={brand.logo} name={brand.name} tagline={brand.tagline} />
+          <form action={saveBranding} className="space-y-3 border-t pt-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="brandName">Business name</Label>
+                <Input id="brandName" name="brandName" defaultValue={brand.name} required />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="brandTown">Town</Label>
+                <Input id="brandTown" name="brandTown" defaultValue={brand.town} placeholder="Dodoma, Tanzania" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="brandPhone">Phone</Label>
+                <Input id="brandPhone" name="brandPhone" defaultValue={brand.phone} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="brandEmail">Email</Label>
+                <Input id="brandEmail" name="brandEmail" type="email" defaultValue={brand.email} />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="brandTagline">Tagline (under the name)</Label>
+              <Input id="brandTagline" name="brandTagline" defaultValue={brand.tagline} />
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="submit">Save branding</Button>
+              <Button asChild variant="outline">
+                <a href="/api/branding/preview" target="_blank" rel="noopener noreferrer">
+                  Preview a sample receipt
+                </a>
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card className="mb-6 max-w-xl">
         <CardHeader>

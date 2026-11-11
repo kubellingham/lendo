@@ -5,6 +5,8 @@ import {
   type PDFFont,
   type PDFPage,
 } from "pdf-lib";
+import type { Branding } from "@/lib/settings";
+import { DEFAULT_BRANDING, drawLogoTile, embedLogo, fit } from "@/lib/pdf/brand";
 import type { ReportData } from "@/lib/reporting";
 import { bandMeta } from "@/lib/credit-score";
 
@@ -279,10 +281,19 @@ function drawTable(ctx: Ctx, title: string, columns: Col[], rows: string[][]) {
   ctx.y -= 10;
 }
 
-export async function buildReportPdf(d: ReportData): Promise<Uint8Array> {
+export async function buildReportPdf(d: ReportData, brandIn?: Branding): Promise<Uint8Array> {
+  let brand = brandIn;
+  if (!brand) {
+    try {
+      const { getBranding } = await import("@/lib/settings");
+      brand = await getBranding();
+    } catch {
+      brand = DEFAULT_BRANDING;
+    }
+  }
   const doc = await PDFDocument.create();
-  doc.setTitle(`Lendo Portfolio Report — ${d.label}`);
-  doc.setAuthor("Lendo");
+  doc.setTitle(`${brand.name} Portfolio Report — ${d.label}`);
+  doc.setAuthor(brand.name);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const page = doc.addPage([W, H]);
@@ -290,8 +301,17 @@ export async function buildReportPdf(d: ReportData): Promise<Uint8Array> {
 
   // ---- Cover band ----
   page.drawRectangle({ x: 0, y: H - 110, width: W, height: 110, color: DARK });
-  page.drawText("LENDO", { x: M, y: H - 52, size: 24, font: bold, color: WHITE });
-  page.drawText("Portfolio Report", { x: M, y: H - 74, size: 12, font, color: rgb(0.7, 0.75, 0.78) });
+  const logo = await embedLogo(doc, brand);
+  let nameX = M;
+  if (logo) nameX += drawLogoTile(page, logo, M, H - 58, 60) + 14;
+  page.drawText(fit(bold, brand.name.toUpperCase(), 24, W / 2 - nameX), {
+    x: nameX,
+    y: H - 52,
+    size: 24,
+    font: bold,
+    color: WHITE,
+  });
+  page.drawText("Portfolio Report", { x: nameX, y: H - 74, size: 12, font, color: rgb(0.7, 0.75, 0.78) });
   const per = d.label;
   page.drawText(per, {
     x: W - M - bold.widthOfTextAtSize(per, 18),
@@ -335,7 +355,7 @@ export async function buildReportPdf(d: ReportData): Promise<Uint8Array> {
   // Narrative line.
   const collDelta = deltaLabel(c.collected.toNumber(), p.collected.toNumber());
   const narrative =
-    `In ${d.label}, Lendo disbursed ${tzs(c.disbursed.toString())} and collected ${tzs(c.collected.toString())}` +
+    `In ${d.label}, ${brand!.name} disbursed ${tzs(c.disbursed.toString())} and collected ${tzs(c.collected.toString())}` +
     (collDelta ? ` (${collDelta.text.replace(" vs prev", ` vs ${d.prevLabel}`)})` : "") +
     `, of which ${tzs(c.interestIncome.toString())} was interest income.`;
   ctx.y -= 2;
@@ -565,7 +585,7 @@ export async function buildReportPdf(d: ReportData): Promise<Uint8Array> {
   // Footer on all pages.
   const pages = doc.getPages();
   pages.forEach((pg, i) => {
-    pg.drawText("Lendo · Confidential — internal management report", {
+    pg.drawText(`${brand!.name} · Confidential — internal management report`, {
       x: M,
       y: 24,
       size: 7.5,
