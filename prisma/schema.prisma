@@ -171,6 +171,8 @@ model Loan {
   cycleDays       Int        @default(30)
   disbursedAt     DateTime   @db.Date
   dueAt           DateTime   @db.Date
+  /// Bank / mobile-money reference of the disbursement transfer (optional).
+  reference       String?
   status          LoanStatus @default(ACTIVE)
   issuedById      String
   issuedBy        User       @relation("LoanIssuedBy", fields: [issuedById], references: [id])

@@ -6,10 +6,23 @@ import { LoanForm, type CustomerOption } from "@/components/loans/loan-form";
 export default async function NewLoanPage({
   searchParams,
 }: {
-  searchParams: Promise<{ customerId?: string }>;
+  searchParams: Promise<{
+    customerId?: string;
+    principal?: string;
+    disbursedAt?: string;
+    reference?: string;
+    ai?: string;
+  }>;
 }) {
   await requirePageRole(...WRITE_ROLES);
-  const { customerId } = await searchParams;
+  const { customerId, principal, disbursedAt, reference, ai } = await searchParams;
+  // Values handed over by Lendo AI from a receipt (staff still review them).
+  const prefill = {
+    principal: principal && /^\d+(\.\d{1,2})?$/.test(principal) ? principal : undefined,
+    disbursedAt: disbursedAt && /^\d{4}-\d{2}-\d{2}$/.test(disbursedAt) ? disbursedAt : undefined,
+    reference: reference?.slice(0, 120) || undefined,
+    fromReceipt: ai === "1",
+  };
 
   const customers = await db.customer.findMany({
     orderBy: { fullName: "asc" },
@@ -36,7 +49,7 @@ export default async function NewLoanPage({
         title="Issue loan"
         description="Create a new loan and generate its repayment schedule."
       />
-      <LoanForm customers={options} preselectedCustomerId={customerId} />
+      <LoanForm customers={options} preselectedCustomerId={customerId} prefill={prefill} />
     </>
   );
 }

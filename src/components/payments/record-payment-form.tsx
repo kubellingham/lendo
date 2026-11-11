@@ -26,7 +26,15 @@ export function RecordPaymentForm({
   defaultDate,
   interestOnlyAmount,
   settlementAmount,
+  prefill,
 }: {
+  /** Values read from a receipt by Lendo AI — shown for review, not saved. */
+  prefill?: {
+    amount?: string;
+    paidAt?: string;
+    method?: "CASH" | "MPESA" | "BANK" | "OTHER";
+    reference?: string;
+  };
   loanId: string;
   installments: InstallmentOption[];
   defaultInstallmentId?: string;
@@ -48,10 +56,10 @@ export function RecordPaymentForm({
     defaultValues: {
       loanId,
       installmentId: defaultInstallmentId ?? "",
-      amount: "",
-      paidAt: defaultDate,
-      method: "CASH",
-      reference: "",
+      amount: prefill?.amount ?? "",
+      paidAt: prefill?.paidAt ?? defaultDate,
+      method: prefill?.method ?? "CASH",
+      reference: prefill?.reference ?? "",
       note: "",
     },
   });
@@ -72,7 +80,9 @@ export function RecordPaymentForm({
       reference: "",
       note: "",
     });
-    router.refresh();
+    // Drop any receipt values from the URL so the form starts clean.
+    if (prefill) router.replace(`/loans/${loanId}`);
+    else router.refresh();
   }
 
   return (

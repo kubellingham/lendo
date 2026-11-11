@@ -65,6 +65,10 @@ export const loanSchema = z.object({
   // Admin-only override to issue to a blacklisted customer.
   overrideBlacklist: z.boolean().optional(),
   overrideReason: optionalText,
+  // Bank / M-Pesa reference of the transfer (e.g. read from a receipt).
+  reference: optionalText,
+  // Set when the form was pre-filled by Lendo AI from a receipt (audit only).
+  fromReceipt: z.boolean().optional(),
 });
 export type LoanInput = z.infer<typeof loanSchema>;
 

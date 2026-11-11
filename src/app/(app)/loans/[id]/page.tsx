@@ -36,6 +36,7 @@ import {
 import { PaymentActions } from "@/components/payments/payment-actions";
 import { LoanActions } from "@/components/loans/loan-actions";
 import { SendMessage } from "@/components/messaging/send-message";
+import { AiPrefillBanner } from "@/components/ai/ai-prefill-banner";
 import { upcomingForLoan } from "@/lib/referral";
 import { Avatar } from "@/components/ui/avatar";
 
@@ -52,10 +53,29 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 export default async function LoanDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{
+    amount?: string;
+    paidAt?: string;
+    method?: string;
+    reference?: string;
+    ai?: string;
+  }>;
 }) {
   const user = await requireUser();
+  // Payment details handed over by Lendo AI from a receipt (staff review them).
+  const sp = await searchParams;
+  const aiPayment =
+    sp.ai === "1"
+      ? {
+          amount: sp.amount && /^\d+(\.\d{1,2})?$/.test(sp.amount) ? sp.amount : undefined,
+          paidAt: sp.paidAt && /^\d{4}-\d{2}-\d{2}$/.test(sp.paidAt) ? sp.paidAt : undefined,
+          method: (["CASH", "MPESA", "BANK", "OTHER"] as const).find((m) => m === sp.method),
+          reference: sp.reference?.slice(0, 120) || undefined,
+        }
+      : null;
   const demo = isDemo(user);
   const canWrite = WRITE_ROLES.includes(user.role);
   const { id } = await params;
@@ -170,6 +190,7 @@ export default async function LoanDetailPage({
         </Link>{" "}
         · {fmtPhone(loan.customer.phone, demo)} · Disbursed {formatDate(loan.disbursedAt)} · Due{" "}
         {formatDate(loan.dueAt)} · Issued by {loan.issuedBy.name}
+        {loan.reference ? ` · Bank ref ${demo ? "•••••" : loan.reference}` : ""}
       </p>
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -186,13 +207,19 @@ export default async function LoanDetailPage({
       </div>
 
       {canWrite && !state.isSettled && loan.status !== "WRITTEN_OFF" ? (
-        <Card className="mb-6">
+        <Card className="mb-6 scroll-mt-20" id="record-payment">
           <CardHeader>
             <CardTitle>Record payment</CardTitle>
           </CardHeader>
           <CardContent>
+            {aiPayment ? (
+              <div className="mb-4">
+                <AiPrefillBanner />
+              </div>
+            ) : null}
             <RecordPaymentForm
               loanId={loan.id}
+              prefill={aiPayment ?? undefined}
               defaultDate={toIsoDate(new Date())}
               defaultInstallmentId={
                 (

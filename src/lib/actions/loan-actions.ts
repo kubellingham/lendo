@@ -155,6 +155,7 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
         principal: toDbString(d.principal),
         disbursedAt: schedule.disbursedAt,
         dueAt: schedule.dueAt,
+        reference: d.reference?.trim() || null,
         issuedById: user.id,
         installments: {
           create: schedule.installments.map((inst) => ({
@@ -180,6 +181,8 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
       customerId: customer.id,
       principal: toDbString(d.principal),
       disbursedAt: d.disbursedAt,
+      reference: d.reference?.trim() || null,
+      fromReceipt: !!d.fromReceipt,
     },
   });
 

@@ -12,6 +12,7 @@ import {
   Contact,
   Landmark,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/generated/prisma/enums";
@@ -25,6 +26,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/ai", label: "Lendo AI", icon: Sparkles, roles: ["ADMIN", "LOAN_OFFICER"] },
   { href: "/customers", label: "Customers", icon: Users },
   { href: "/referrals", label: "Referrals", icon: Contact, roles: ["ADMIN","LOAN_OFFICER","ACCOUNTANT","VIEWER"] },
   { href: "/loans", label: "Loans", icon: Banknote },

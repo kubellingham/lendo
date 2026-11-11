@@ -15,6 +15,7 @@ import {
 import { generateSchedule } from "@/lib/schedule";
 import { parseIsoDate, toIsoDate, formatDate } from "@/lib/dates";
 import { formatTZS } from "@/lib/money";
+import { AiPrefillBanner } from "@/components/ai/ai-prefill-banner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,12 +42,21 @@ export type CustomerOption = {
   isBlacklisted: boolean;
 };
 
+export type LoanPrefill = {
+  principal?: string;
+  disbursedAt?: string;
+  reference?: string;
+  fromReceipt?: boolean;
+};
+
 export function LoanForm({
   customers,
   preselectedCustomerId,
+  prefill = {},
 }: {
   customers: CustomerOption[];
   preselectedCustomerId?: string;
+  prefill?: LoanPrefill;
 }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -65,8 +75,10 @@ export function LoanForm({
     resolver: zodResolver(loanSchema),
     defaultValues: {
       customerId: preselectedCustomerId ?? "",
-      principal: "",
-      disbursedAt: today,
+      principal: prefill.principal ?? "",
+      disbursedAt: prefill.disbursedAt ?? today,
+      reference: prefill.reference ?? "",
+      fromReceipt: !!prefill.fromReceipt,
       overrideBlacklist: false,
       overrideReason: "",
     },
@@ -149,6 +161,7 @@ export function LoanForm({
           <CardTitle>Loan details</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {prefill.fromReceipt ? <AiPrefillBanner /> : null}
           <div className="space-y-1.5">
             <div className="flex items-baseline justify-between gap-2">
               <Label>Customer</Label>
@@ -190,6 +203,11 @@ export function LoanForm({
                 {errors.principal.message}
               </p>
             ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Bank / M-Pesa reference (optional)</Label>
+            <Input {...register("reference")} placeholder="e.g. 1a1c0fe323c5ea45" />
           </div>
 
           <div className="space-y-1.5">
