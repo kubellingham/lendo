@@ -16,6 +16,8 @@ import { generateSchedule } from "@/lib/schedule";
 import { parseIsoDate, toIsoDate, formatDate } from "@/lib/dates";
 import { formatTZS } from "@/lib/money";
 import { AiPrefillBanner } from "@/components/ai/ai-prefill-banner";
+import { summarizeCustomer } from "@/lib/actions/summary-actions";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -88,11 +90,14 @@ export function LoanForm({
   const [elig, setElig] = useState<EligibilityView | null>(null);
   const [eligLoading, setEligLoading] = useState(false);
   const [overrideOn, setOverrideOn] = useState(false);
+  // Lendo AI's plain-words summary of the customer's history.
+  const [summary, setSummary] = useState<{ state: "loading" | "done" | "none"; text?: string }>({ state: "none" });
 
   // Check eligibility as soon as a customer is picked.
   useEffect(() => {
     let cancelled = false;
     setElig(null);
+    setSummary({ state: "none" });
     setOverrideOn(false);
     setValue("overrideBlacklist", false);
     setNeedsOverride(false);
@@ -105,6 +110,13 @@ export function LoanForm({
         if (res.ok) setElig(res.eligibility);
       })
       .finally(() => !cancelled && setEligLoading(false));
+    setSummary({ state: "loading" });
+    summarizeCustomer(customerId)
+      .then((res) => {
+        if (cancelled) return;
+        setSummary(res.ok && res.text ? { state: "done", text: res.text } : { state: "none" });
+      })
+      .catch(() => !cancelled && setSummary({ state: "none" }));
     return () => {
       cancelled = true;
     };
@@ -225,6 +237,7 @@ export function LoanForm({
           ) : elig ? (
             <EligibilityPanel
               elig={elig}
+              summary={summary}
               overrideOn={overrideOn}
               onOverride={(on) => {
                 setOverrideOn(on);
@@ -362,11 +375,13 @@ const STATUS_STYLE: Record<
 
 function EligibilityPanel({
   elig,
+  summary,
   overrideOn,
   onOverride,
   reasonField,
 }: {
   elig: EligibilityView;
+  summary: { state: "loading" | "done" | "none"; text?: string };
   overrideOn: boolean;
   onOverride: (on: boolean) => void;
   reasonField: React.ReactNode;
@@ -385,6 +400,19 @@ function EligibilityPanel({
           Score {elig.score} · {elig.bandLabel}
         </span>
       </div>
+
+      {summary.state === "loading" ? (
+        <p className="flex items-center gap-1.5 text-xs text-violet-800">
+          <Sparkles className="size-3.5" /> Lendo AI is summarising their history…
+        </p>
+      ) : summary.state === "done" ? (
+        <div className="rounded-md bg-white/70 px-2.5 py-2 text-sm text-slate-800">
+          <span className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-violet-700">
+            <Sparkles className="size-3" /> Their history, in plain words
+          </span>
+          {summary.text}
+        </div>
+      ) : null}
 
       {elig.blockers.length > 0 ? (
         <ul className={`list-disc space-y-0.5 pl-5 text-sm ${st.text}`}>
