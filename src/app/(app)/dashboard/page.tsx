@@ -6,6 +6,8 @@ import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { add, formatTZS, money } from "@/lib/money";
 import { fmtMoney, isDemo } from "@/lib/demo-mode";
+import { aiConfigured } from "@/lib/ai/client";
+import { MorningBriefing } from "@/components/ai/morning-briefing";
 import { formatDate, startOfTodayUtc, addBusinessDays } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -223,6 +225,8 @@ export default async function DashboardPage() {
           ) : null
         }
       />
+
+      {!demo && aiConfigured() ? <MorningBriefing /> : null}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat
