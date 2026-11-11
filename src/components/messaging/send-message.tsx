@@ -7,7 +7,12 @@ import {
   ExternalLink,
   Check,
   FileDown,
+  Sparkles,
+  Undo2,
+  Loader2,
 } from "lucide-react";
+import { rewriteMessage } from "@/lib/actions/rewrite-actions";
+import type { Language, Tone } from "@/lib/ai/rewrite";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -136,6 +141,42 @@ export function SendMessage({
   const [picks, setPicks] = useState<ReferralPick[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [windowDays, setWindowDays] = useState(DEFAULT_WINDOW);
+  // Lendo AI rewrite
+  const [recipient, setRecipient] = useState("");
+  const [lang, setLang] = useState<Language>("sw");
+  const [tone, setTone] = useState<Tone>("auto");
+  const [beforeRewrite, setBeforeRewrite] = useState<string | null>(null);
+  const [rewriteNote, setRewriteNote] = useState<{ tone: string; missing: string[] } | null>(null);
+  const [rewriting, startRewrite] = useTransition();
+
+  function rewrite() {
+    if (!message.trim()) return;
+    setError(null);
+    const original = beforeRewrite ?? message;
+    startRewrite(async () => {
+      const res = await rewriteMessage({
+        message: original,
+        language: lang,
+        tone,
+        context,
+        recipientName: recipient || undefined,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setBeforeRewrite(original);
+      setMessage(res.message);
+      setRewriteNote({ tone: res.toneUsed, missing: res.missing });
+    });
+  }
+
+  function undoRewrite() {
+    if (beforeRewrite == null) return;
+    setMessage(beforeRewrite);
+    setBeforeRewrite(null);
+    setRewriteNote(null);
+  }
 
   const isPickable = PICKABLE.has(key) && !!picks && picks.length > 0;
   const isUpcoming = key === "referral_upcoming_all";
@@ -166,6 +207,8 @@ export function SendMessage({
       }
       setMessage(res.message);
       setPhone(res.phoneE164);
+      setBeforeRewrite(null);
+      setRewriteNote(null);
     });
   }
 
@@ -190,6 +233,9 @@ export function SendMessage({
         return;
       }
       setPhone(res.phoneE164);
+      setRecipient(res.customerName);
+      setBeforeRewrite(null);
+      setRewriteNote(null);
       const list = res.referralLoans;
       if (!list || !PICKABLE.has(templateKey)) {
         setMessage(res.message);
@@ -382,6 +428,57 @@ export function SendMessage({
               className="font-mono text-sm"
               placeholder={pending ? "Loading…" : ""}
             />
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-violet-200 bg-violet-50/60 px-2 py-1.5">
+              <Sparkles className="size-4 text-violet-700" />
+              <Select
+                value={lang}
+                onChange={(e) => setLang(e.target.value as Language)}
+                className="h-8 w-auto py-0 text-xs"
+                aria-label="Language"
+              >
+                <option value="sw">Kiswahili</option>
+                <option value="en">English</option>
+              </Select>
+              <Select
+                value={tone}
+                onChange={(e) => setTone(e.target.value as Tone)}
+                className="h-8 w-auto py-0 text-xs"
+                aria-label="Tone"
+              >
+                <option value="auto">Tone: auto (from their record)</option>
+                <option value="gentle">Gentle</option>
+                <option value="normal">Normal</option>
+                <option value="firm">Firm</option>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={rewrite}
+                disabled={!message.trim() || rewriting || pending}
+              >
+                {rewriting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Rewrite with Lendo AI
+              </Button>
+              {beforeRewrite != null ? (
+                <Button type="button" size="sm" variant="ghost" onClick={undoRewrite} disabled={rewriting}>
+                  <Undo2 className="size-3.5" /> Undo
+                </Button>
+              ) : null}
+            </div>
+            {rewriteNote ? (
+              rewriteNote.missing.length ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                  Check before sending: these details from the original aren&apos;t in the new text —{" "}
+                  <span className="font-mono">{rewriteNote.missing.join(", ")}</span>. Add them back or press Undo.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Rewritten ({rewriteNote.tone} tone). All amounts, dates and account details from the original are
+                  still there — read it once before sending.
+                </p>
+              )
+            ) : null}
           </div>
 
           {error ? (
