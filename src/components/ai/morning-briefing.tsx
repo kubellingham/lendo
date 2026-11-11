@@ -8,8 +8,6 @@ import { getBriefing } from "@/lib/actions/briefing-actions";
 import type { BriefingLang } from "@/lib/ai/briefing";
 import { cn } from "@/lib/utils";
 
-const LANG_KEY = "lendo.briefing.lang";
-
 export function MorningBriefing() {
   const [lang, setLang] = useState<BriefingLang>("en");
   const [text, setText] = useState<string | null>(null);
@@ -30,21 +28,24 @@ export function MorningBriefing() {
     });
   }
 
+  // Load today's (cached) briefing once when the dashboard opens.
   useEffect(() => {
-    let saved: BriefingLang = "en";
-    try {
-      if (localStorage.getItem(LANG_KEY) === "sw") saved = "sw";
-    } catch {}
-    setLang(saved);
-    load(saved);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    getBriefing("en").then((res) => {
+      if (cancelled) return;
+      if (!res.ok) setError(res.error);
+      else {
+        setText(res.text);
+        setAt(res.at);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function switchLang(l: BriefingLang) {
     setLang(l);
-    try {
-      localStorage.setItem(LANG_KEY, l);
-    } catch {}
     load(l);
   }
 

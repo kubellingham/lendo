@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -76,27 +76,58 @@ function prefill(r: ReceiptReading): Prefill {
   };
 }
 
+type Item = {
+  id: string;
+  name: string;
+  image: string;
+  status: "ready" | "reading" | "done" | "error";
+  result?: Ok;
+  error?: string;
+  kind: Kind;
+};
+
+const MAX_ITEMS = 20;
+const PARALLEL = 2;
+
 export function ReceiptScanner() {
-  const [image, setImage] = useState<string | null>(null);
-  const [result, setResult] = useState<Ok | null>(null);
-  const [kind, setKind] = useState<Kind>("UNKNOWN");
+  const [items, setItems] = useState<Item[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
-  const [pending, start] = useTransition();
+  const [reading, setReading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const takeFile = useCallback(async (file: File | undefined | null) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Please choose a picture of the receipt (a screenshot or photo).");
+  const update = (id: string, patch: Partial<Item>) =>
+    setItems((list) => list.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+
+  const takeFiles = useCallback(async (files: File[]) => {
+    const images = files.filter((f) => f.type.startsWith("image/"));
+    if (!images.length) {
+      setError("Please choose pictures of receipts (screenshots or photos).");
       return;
     }
     setError(null);
-    setResult(null);
     setPreparing(true);
     try {
-      setImage(await compress(file));
+      const added: Item[] = [];
+      for (const f of images) {
+        added.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          name: f.name || "Pasted screenshot",
+          image: await compress(f),
+          status: "ready",
+          kind: "UNKNOWN",
+        });
+      }
+      setItems((list) => {
+        const next = [...list, ...added].slice(0, MAX_ITEMS);
+        if (list.length + added.length > MAX_ITEMS) {
+          setError(`Up to ${MAX_ITEMS} receipts at a time — the rest were skipped.`);
+        }
+        return next;
+      });
+      setSelected((cur) => cur ?? added[0]?.id ?? null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -104,58 +135,88 @@ export function ReceiptScanner() {
     }
   }, []);
 
-  // Paste a screenshot straight from the clipboard (Ctrl/Cmd+V).
+  // Paste screenshots straight from the clipboard (Ctrl/Cmd+V).
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
-      const item = [...(e.clipboardData?.items ?? [])].find((i) => i.type.startsWith("image/"));
-      if (item) takeFile(item.getAsFile());
+      const files = [...(e.clipboardData?.items ?? [])]
+        .filter((i) => i.type.startsWith("image/"))
+        .map((i) => i.getAsFile())
+        .filter((f): f is File => !!f);
+      if (files.length) takeFiles(files);
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [takeFile]);
+  }, [takeFiles]);
 
-  function read() {
-    if (!image) return;
+  async function readOne(it: Item) {
+    update(it.id, { status: "reading", error: undefined });
+    try {
+      const res = await scanReceipt(it.image);
+      if (res.ok) update(it.id, { status: "done", result: res, kind: res.reading.kind });
+      else update(it.id, { status: "error", error: res.error });
+    } catch {
+      update(it.id, { status: "error", error: "Couldn't reach Lendo. Try again." });
+    }
+  }
+
+  async function readAll() {
+    const queue = items.filter((i) => i.status === "ready" || i.status === "error");
+    if (!queue.length) return;
+    setReading(true);
     setError(null);
-    start(async () => {
-      const res = await scanReceipt(image);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      setResult(res);
-      setKind(res.reading.kind);
+    async function worker() {
+      for (let it = queue.shift(); it; it = queue.shift()) await readOne(it);
+    }
+    await Promise.all(Array.from({ length: PARALLEL }, worker));
+    setReading(false);
+  }
+
+  function remove(id: string) {
+    setItems((list) => {
+      const next = list.filter((i) => i.id !== id);
+      if (selected === id) setSelected(next[0]?.id ?? null);
+      return next;
     });
   }
 
   function reset() {
-    setImage(null);
-    setResult(null);
+    setItems([]);
+    setSelected(null);
     setError(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
+  const current = items.find((i) => i.id === selected) ?? null;
+  const toRead = items.filter((i) => i.status === "ready" || i.status === "error").length;
+  const done = items.filter((i) => i.status === "done").length;
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
-      {/* ---- Left: the receipt */}
+      {/* ---- Left: the receipts */}
       <Card>
         <CardHeader>
-          <CardTitle>Receipt</CardTitle>
+          <CardTitle>
+            Receipts{items.length ? ` (${done}/${items.length} read)` : ""}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <input
             ref={inputRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden"
-            onChange={(e) => takeFile(e.target.files?.[0])}
+            onChange={(e) => {
+              takeFiles([...(e.target.files ?? [])]);
+              e.target.value = "";
+            }}
           />
-          {image ? (
+          {current ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={image}
+              src={current.image}
               alt="Receipt to read"
-              className="max-h-[520px] w-full rounded-md border object-contain"
+              className="max-h-[440px] w-full rounded-md border object-contain"
             />
           ) : (
             <button
@@ -169,39 +230,89 @@ export function ReceiptScanner() {
               onDrop={(e) => {
                 e.preventDefault();
                 setDragOver(false);
-                takeFile(e.dataTransfer.files?.[0]);
+                takeFiles([...(e.dataTransfer.files ?? [])]);
               }}
               className={cn(
                 "flex h-64 w-full flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed text-sm text-muted-foreground transition-colors",
                 dragOver ? "border-primary bg-primary/5" : "hover:bg-accent",
               )}
             >
-              {preparing ? (
-                <Loader2 className="size-6 animate-spin" />
-              ) : (
-                <ImageUp className="size-6" />
-              )}
-              <span className="font-medium text-foreground">Choose a receipt picture</span>
-              <span>or drag it here, or paste a screenshot (Ctrl/⌘ + V)</span>
+              {preparing ? <Loader2 className="size-6 animate-spin" /> : <ImageUp className="size-6" />}
+              <span className="font-medium text-foreground">Choose receipt pictures</span>
+              <span>one or many — or drag them here, or paste a screenshot (Ctrl/⌘ + V)</span>
             </button>
           )}
 
+          {items.length > 0 ? (
+            <ul className="grid grid-cols-5 gap-2">
+              {items.map((it, i) => (
+                <li key={it.id} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setSelected(it.id)}
+                    className={cn(
+                      "block aspect-[3/4] w-full overflow-hidden rounded border-2",
+                      it.id === selected ? "border-primary" : "border-transparent",
+                    )}
+                    title={it.name}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={it.image} alt={`Receipt ${i + 1}`} className="h-full w-full object-cover" />
+                  </button>
+                  <span
+                    className={cn(
+                      "absolute bottom-1 left-1 rounded px-1 text-[10px] font-medium",
+                      it.status === "done"
+                        ? "bg-emerald-600 text-white"
+                        : it.status === "error"
+                          ? "bg-red-600 text-white"
+                          : it.status === "reading"
+                            ? "bg-violet-600 text-white"
+                            : "bg-white/90 text-slate-700",
+                    )}
+                  >
+                    {it.status === "done" ? "✓" : it.status === "error" ? "!" : it.status === "reading" ? "…" : i + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => remove(it.id)}
+                    disabled={it.status === "reading"}
+                    className="absolute right-0.5 top-0.5 rounded bg-white/90 px-1 text-[10px] leading-4 text-slate-600 hover:bg-white"
+                    aria-label={`Remove receipt ${i + 1}`}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
-            <Button onClick={read} disabled={!image || pending || preparing}>
-              {pending ? (
+            <Button onClick={readAll} disabled={!toRead || reading || preparing}>
+              {reading ? (
                 <>
                   <Loader2 className="size-4 animate-spin" /> Reading…
                 </>
               ) : (
                 <>
-                  <Sparkles className="size-4" /> Read receipt
+                  <Sparkles className="size-4" />
+                  {items.length > 1 ? `Read ${toRead} receipt${toRead === 1 ? "" : "s"}` : "Read receipt"}
                 </>
               )}
             </Button>
-            {image ? (
-              <Button variant="outline" onClick={reset} disabled={pending}>
-                <RotateCcw className="size-4" /> Another receipt
-              </Button>
+            {items.length ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => inputRef.current?.click()}
+                  disabled={reading || items.length >= MAX_ITEMS}
+                >
+                  <ImageUp className="size-4" /> Add more
+                </Button>
+                <Button variant="ghost" onClick={reset} disabled={reading}>
+                  <RotateCcw className="size-4" /> Clear
+                </Button>
+              </>
             ) : null}
           </div>
           {error ? (
@@ -210,24 +321,39 @@ export function ReceiptScanner() {
             </p>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            The picture is only used to read the details. It isn&apos;t stored.
+            Pictures are only used to read the details. They aren&apos;t stored.
           </p>
         </CardContent>
       </Card>
 
-      {/* ---- Right: what Lendo AI read */}
+      {/* ---- Right: what Lendo AI read for the selected receipt */}
       <div className="space-y-4">
-        {!result ? (
+        {current?.result ? (
+          <ResultView
+            key={current.id}
+            result={current.result}
+            kind={current.kind}
+            setKind={(k) => update(current.id, { kind: k })}
+          />
+        ) : (
           <Card>
             <CardContent className="py-10 text-center text-sm text-muted-foreground">
-              {pending
-                ? "Lendo AI is reading the receipt…"
-                : "Upload a receipt and tap “Read receipt”. Lendo AI fills in the details — you check and approve them before anything is saved."}
+              {current?.status === "reading"
+                ? "Lendo AI is reading this receipt…"
+                : current?.status === "error"
+                  ? current.error
+                  : items.length
+                    ? "Tap “Read” and Lendo AI fills in the details for each receipt — then review them one by one."
+                    : "Upload receipts and tap “Read”. Lendo AI fills in the details — you check and approve them before anything is saved."}
             </CardContent>
           </Card>
-        ) : (
-          <ResultView result={result} kind={kind} setKind={setKind} />
         )}
+        {current?.result && items.length > 1 ? (
+          <p className="text-xs text-muted-foreground">
+            Tip: forms open in the same tab — use your browser&apos;s back button to return here for the next
+            receipt, or open them in a new tab.
+          </p>
+        ) : null}
       </div>
     </div>
   );
