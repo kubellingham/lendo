@@ -16,6 +16,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { scanReceipt, type ScanResult } from "@/lib/actions/ai-actions";
 import type { ReceiptReading } from "@/lib/ai/receipt-ai";
 import { cn } from "@/lib/utils";
+import {
+  findCustomerHref,
+  issueLoanHref,
+  newCustomerHref,
+  recordPaymentHref,
+  type Prefill,
+} from "@/lib/ai/links";
 
 type Kind = ReceiptReading["kind"];
 type Ok = Extract<ScanResult, { ok: true }>;
@@ -57,36 +64,16 @@ function tsh(n: number | null | undefined) {
   return n == null ? "—" : `TSh ${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 }
 
-function qs(params: Record<string, string | number | null | undefined>) {
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) if (v != null && v !== "") p.set(k, String(v));
-  return p.toString();
-}
-
-function issueLoanHref(r: ReceiptReading, customerId?: string) {
-  return `/loans/new?${qs({
-    customerId,
-    principal: r.amount,
-    disbursedAt: r.date,
-    reference: r.reference,
-    ai: 1,
-  })}`;
-}
-
-function newCustomerHref(r: ReceiptReading) {
-  // After saving the customer, the app continues to the pre-filled loan form.
-  const back = issueLoanHref(r);
-  return `/customers/new?${qs({ fullName: r.counterpartyName, phone: r.counterpartyAccount, ai: 1, return: back })}`;
-}
-
-function recordPaymentHref(r: ReceiptReading, loanId: string) {
-  return `/loans/${loanId}?${qs({
+/** What the shared link helpers need, from a receipt reading. */
+function prefill(r: ReceiptReading): Prefill {
+  return {
     amount: r.amount,
-    paidAt: r.date,
-    method: r.method,
+    date: r.date,
     reference: r.reference,
-    ai: 1,
-  })}#record-payment`;
+    method: r.method,
+    name: r.counterpartyName,
+    account: r.counterpartyAccount,
+  };
 }
 
 export function ReceiptScanner() {
@@ -399,7 +386,7 @@ function LoanNext({ result }: { result: Ok }) {
               <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 p-3">
                 <MatchHeader m={m} />
                 <Button asChild size="sm">
-                  <Link href={issueLoanHref(r, m.id)}>
+                  <Link href={issueLoanHref(prefill(r), m.id)}>
                     Review &amp; issue loan <ArrowRight className="size-4" />
                   </Link>
                 </Button>
@@ -413,13 +400,13 @@ function LoanNext({ result }: { result: Ok }) {
         )}
         <div className="flex flex-wrap gap-2">
           <Button asChild variant={result.matches.length ? "outline" : "default"} size="sm">
-            <Link href={newCustomerHref(r)}>
+            <Link href={newCustomerHref(prefill(r))}>
               <UserPlus className="size-4" /> New customer
               {r.counterpartyName ? `: ${r.counterpartyName}` : ""}
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href={issueLoanHref(r)}>Pick the customer myself</Link>
+            <Link href={issueLoanHref(prefill(r))}>Pick the customer myself</Link>
           </Button>
         </div>
       </CardContent>
@@ -458,7 +445,7 @@ function PaymentNext({ result }: { result: Ok }) {
                           </div>
                         </div>
                         <Button asChild size="sm">
-                          <Link href={recordPaymentHref(r, l.loanId)}>
+                          <Link href={recordPaymentHref(prefill(r), l.loanId)}>
                             Review &amp; record <ArrowRight className="size-4" />
                           </Link>
                         </Button>
@@ -479,7 +466,7 @@ function PaymentNext({ result }: { result: Ok }) {
           </p>
         )}
         <Button asChild variant="outline" size="sm">
-          <Link href={`/customers?${qs({ q: r.counterpartyName?.split(/\s+/)[0] ?? "" })}`}>
+          <Link href={findCustomerHref(r.counterpartyName)}>
             Find the customer myself
           </Link>
         </Button>

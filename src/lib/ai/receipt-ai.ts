@@ -1,24 +1,12 @@
 import { z } from "zod";
 
-// ---------------------------------------------------------------------------
+import { AiError, aiChat, extractJson } from "@/lib/ai/client";
+
+export { AiError, aiConfigured } from "@/lib/ai/client";
+
 // Lendo AI — reads a bank / mobile-money receipt image and returns the
 // details as structured data. It only *suggests*: staff review and approve
 // everything in the normal forms before anything is saved.
-//
-// Provider: AIML API (OpenAI-compatible chat completions) serving Claude
-// Haiku 5.5. Configure with env vars:
-//   AIMLAPI_API_KEY   required — from the AIML API dashboard
-//   AIMLAPI_MODEL     optional — defaults to anthropic/claude-haiku-5.5
-//   AIMLAPI_BASE_URL  optional — defaults to https://api.aimlapi.com/v1
-// ---------------------------------------------------------------------------
-
-const DEFAULT_BASE_URL = "https://api.aimlapi.com/v1";
-const DEFAULT_MODEL = "anthropic/claude-haiku-5.5";
-const TIMEOUT_MS = 60_000;
-
-export function aiConfigured(): boolean {
-  return !!process.env.AIMLAPI_API_KEY?.trim();
-}
 
 const nullableString = z
   .string()
@@ -85,86 +73,32 @@ Reply with ONLY a JSON object, no other text:
 {"kind":"LOAN_GIVEN"|"PAYMENT_RECEIVED"|"UNKNOWN","amount":number|null,"currency":string|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"counterpartyName":string|null,"counterpartyAccount":string|null,"reference":string|null,"description":string|null,"provider":string|null,"method":"BANK"|"MPESA"|"CASH"|"OTHER"|null,"transactionStatus":string|null,"confidence":"high"|"medium"|"low","notes":string}`;
 }
 
-/** Pull the first JSON object out of a model reply (tolerates code fences). */
+/** Pull the receipt JSON out of a model reply (tolerates code fences). */
 export function parseReceiptReply(text: string): ReceiptReading | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  try {
-    const parsed = receiptSchema.safeParse(JSON.parse(text.slice(start, end + 1)));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+  const raw = extractJson(text);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const parsed = receiptSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
 }
-
-export class AiError extends Error {}
 
 /** Send the receipt image to the model and return what it read. */
 export async function readReceipt(
   imageDataUrl: string,
   business: { accountName: string; bank: string; accountNumber: string },
 ): Promise<ReceiptReading> {
-  const key = process.env.AIMLAPI_API_KEY?.trim();
-  if (!key) throw new AiError("Lendo AI isn't switched on yet (no AIML API key).");
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  let res: Response;
-  try {
-    const base = (process.env.AIMLAPI_BASE_URL?.trim() || DEFAULT_BASE_URL).replace(/\/+$/, "");
-    res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: process.env.AIMLAPI_MODEL?.trim() || DEFAULT_MODEL,
-        max_tokens: 1500,
-        reasoning_effort: "low",
-        messages: [
-          { role: "system", content: buildSystemPrompt(business) },
-          {
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: imageDataUrl } },
-              { type: "text", text: "Read this receipt." },
-            ],
-          },
+  const { content: text } = await aiChat({
+    maxTokens: 1500,
+    messages: [
+      { role: "system", content: buildSystemPrompt(business) },
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: imageDataUrl } },
+          { type: "text", text: "Read this receipt." },
         ],
-      }),
-    });
-  } catch (err) {
-    throw new AiError(
-      (err as Error).name === "AbortError"
-        ? "Lendo AI took too long to answer. Please try again."
-        : "Couldn't reach Lendo AI. Check the internet connection and try again.",
-    );
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (res.status === 401 || res.status === 403) {
-    throw new AiError("The AIML API key was rejected. Check AIMLAPI_API_KEY in Vercel.");
-  }
-  if (res.status === 402) {
-    throw new AiError("Your AIML API account is out of credits. Top up to keep using Lendo AI.");
-  }
-  if (res.status === 429) {
-    throw new AiError("Lendo AI is busy right now. Wait a moment and try again.");
-  }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("[readReceipt] AIML API error", res.status, body.slice(0, 500));
-    throw new AiError(`Lendo AI returned an error (${res.status}). Please try again.`);
-  }
-
-  const json = (await res.json()) as {
-    choices?: { message?: { content?: string | null }; finish_reason?: string }[];
-  };
-  const text = json.choices?.[0]?.message?.content ?? "";
+      },
+    ],
+  });
   const reading = parseReceiptReply(text);
   if (!reading) {
     console.error("[readReceipt] unparseable reply", text.slice(0, 500));
