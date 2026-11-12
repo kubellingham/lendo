@@ -6,6 +6,7 @@ import { formatDate, formatDateTime } from "@/lib/dates";
 import { buildReceiptPdf, type ReceiptDoc, type ReceiptRow } from "@/lib/pdf/receipt";
 import { getPaymentDetails } from "@/lib/settings";
 import { upcomingForLoan, dueWhen } from "@/lib/referral";
+import { dueWhenText, loanSituation } from "@/lib/loan-situation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,18 +73,25 @@ export async function GET(
     })),
   });
 
-  const currentInst = loan.installments.find(
-    (i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID",
-  );
-  const dueDateSource =
-    currentInst?.dueDate ?? loan.dueAt ?? loan.installments[0].dueDate;
-  const daysOverdue = Math.max(
-    0,
-    Math.floor((Date.now() - dueDateSource.getTime()) / (24 * 60 * 60 * 1000)),
-  );
-  const interestForCurrent = currentInst
-    ? state.perInstallmentInterestOwed[currentInst.id]
-    : state.interestOnlyNow;
+  // Same calculation as the WhatsApp messages: current round, real days to
+  // the due date (Tanzania calendar days) and what must be paid.
+  const sit = loanSituation({
+    ...loan,
+    payments: loan.payments.map((p) => ({ amount: p.amount, installmentId: p.installmentId })),
+  });
+  const dueDateSource = sit.dueDate ?? loan.dueAt;
+  const daysOverdue = sit.daysUntilDue != null && sit.daysUntilDue < 0 ? -sit.daysUntilDue : 0;
+  const roundLabel = sit.round ? `Round ${sit.round} of ${loan.cyclesAllowed}${sit.isFinalRound ? " (final)" : ""}` : "—";
+  const amountRows: ReceiptRow[] = sit.isFinalRound
+    ? [{ label: "Amount to pay (full balance)", value: tsh(sit.toClear), strong: true }]
+    : [
+        { label: `Minimum to pay (round ${sit.round} interest)`, value: tsh(sit.minimumDue), strong: true },
+        { label: "To clear the whole loan", value: tsh(sit.toClear) },
+      ];
+  const amountHighlight = sit.isFinalRound
+    ? { label: "Amount to pay (full balance)", value: tsh(sit.toClear) }
+    : { label: "Minimum to pay", value: tsh(sit.minimumDue) };
+
   const lastPayment = loan.payments[0];
 
   const base = {
@@ -106,26 +114,22 @@ export async function GET(
     case "reminder_7d":
     case "reminder_3d":
     case "due_today": {
+      const d = sit.daysUntilDue ?? 0;
       const when =
-        type === "due_today"
-          ? "Payment is due today"
-          : type === "reminder_3d"
-            ? "Payment due in 3 days"
-            : "Payment due in 7 days";
+        d === 0 ? "This payment is due today" : d > 0 ? `This payment is due ${dueWhenText(d)}` : `This payment is ${-d} day(s) overdue`;
       const summary: ReceiptRow[] = [
         { label: "Loan reference", value: loanRef(loan.id) },
+        { label: "Round", value: roundLabel },
         { label: "Due date", value: formatDate(dueDateSource) },
-        { label: "Interest rate", value: `${loan.interestRatePct}% per cycle` },
-        { label: "Principal", value: tsh(loan.principal) },
-        { label: "Interest due", value: tsh(interestForCurrent) },
-        { label: "Balance", value: tsh(state.principalOutstanding), strong: true },
+        ...amountRows,
+        { label: "Principal still owed", value: tsh(state.principalOutstanding) },
         ...payRows,
       ];
       doc = {
         ...base,
-        docTitle: "PAYMENT REMINDER",
+        docTitle: d < 0 ? "OVERDUE NOTICE" : "PAYMENT REMINDER",
         summary,
-        highlight: { label: "Total due", value: tsh(state.settlementAmountNow) },
+        highlight: amountHighlight,
         footerNote: `${when}. Please pay on time to keep your account in good standing.`,
         tagline: REPAY_TAGLINE,
       };
@@ -134,18 +138,19 @@ export async function GET(
     case "overdue": {
       const summary: ReceiptRow[] = [
         { label: "Loan reference", value: loanRef(loan.id) },
+        { label: "Round", value: roundLabel },
         { label: "Was due", value: formatDate(dueDateSource) },
         { label: "Days overdue", value: String(daysOverdue) },
-        { label: "Balance", value: tsh(state.principalOutstanding), strong: true },
+        ...amountRows,
         ...payRows,
       ];
       doc = {
         ...base,
         docTitle: "OVERDUE NOTICE",
         summary,
-        highlight: { label: "Total due", value: tsh(state.settlementAmountNow) },
+        highlight: amountHighlight,
         footerNote:
-          "This payment is overdue. Please settle as soon as possible, or contact us to arrange a way forward.",
+          "This payment is overdue. Please pay as soon as possible, or contact us to arrange a way forward.",
         tagline: FORWARD_TAGLINE,
       };
       break;
@@ -190,14 +195,11 @@ export async function GET(
       const summary: ReceiptRow[] = [
         { label: "Borrower", value: loan.customer.fullName },
         { label: "Loan reference", value: loanRef(loan.id) },
-        { label: "Original amount", value: tsh(loan.principal) },
+        { label: "Loan amount", value: tsh(loan.principal) },
+        { label: "Round", value: roundLabel },
         { label: "Was due", value: formatDate(dueDateSource) },
         { label: "Days overdue", value: String(daysOverdue) },
-        {
-          label: "Amount outstanding",
-          value: tsh(state.settlementAmountNow),
-          strong: true,
-        },
+        ...amountRows,
         ...payRows,
       ];
       doc = {
@@ -206,12 +208,8 @@ export async function GET(
         customerName: loan.customer.referralName || "Referral",
         customerPhone: loan.customer.referralPhone || "—",
         summary,
-        highlight: {
-          label: "Amount outstanding",
-          value: tsh(state.settlementAmountNow),
-        },
-        footerNote:
-          "Kindly remind your referral to clear the outstanding amount as soon as possible.",
+        highlight: amountHighlight,
+        footerNote: "Kindly remind your referral to pay the amount due as soon as possible.",
         tagline: FORWARD_TAGLINE,
       };
       break;

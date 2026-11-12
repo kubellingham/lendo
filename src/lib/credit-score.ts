@@ -269,7 +269,7 @@ export function computeCreditScore(loans: ScoreLoan[], now: Date): CreditScore {
       if (c.isFinal) {
         const missed = c.coveredAt
           ? daysAfter(c.dueDate, c.coveredAt) > 0
-          : now.getTime() > c.dueDate.getTime();
+          : now.getTime() >= c.dueDate.getTime() + DAY; // due date fully passed
         if (missed) {
           const f = c.coveredAt
             ? fade(MISSED_FINAL_SETTLEMENT, c.coveredAt, now)

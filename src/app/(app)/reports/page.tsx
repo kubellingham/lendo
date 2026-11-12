@@ -5,7 +5,7 @@ import { requireUser } from "@/lib/rbac";
 import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { formatTZS, money } from "@/lib/money";
-import { formatDate, parseIsoDate, startOfTodayUtc } from "@/lib/dates";
+import { formatDate, parseIsoDate } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { LoanStatusBadge } from "@/components/status";
 import { ReportDownload } from "@/components/reports/report-download";
+import { loanSituation } from "@/lib/loan-situation";
 import { ExcelDownload } from "@/components/reports/excel-download";
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -89,7 +90,6 @@ export default async function ReportsPage({
     }),
   ]);
 
-  const today = startOfTodayUtc();
   let totalDisbursed = money(0);
   let totalInterestCollected = money(0);
   let totalPrincipalCollected = money(0);
@@ -150,16 +150,9 @@ export default async function ReportsPage({
 
     let daysLate = 0;
     if (loan.status !== "SETTLED" && loan.status !== "WRITTEN_OFF") {
-      const overdueInst = loan.installments.find((i) => i.status === "OVERDUE");
-      if (overdueInst) {
-        daysLate = Math.max(
-          0,
-          Math.floor(
-            (today.getTime() - overdueInst.dueDate.getTime()) /
-              (24 * 60 * 60 * 1000),
-          ),
-        );
-      }
+      // Same rule as everywhere: late once the current round's due date has passed.
+      const d = loanSituation(loan).daysUntilDue;
+      daysLate = d != null && d < 0 ? -d : 0;
       const bucket =
         agingBuckets.find(
           (b) =>

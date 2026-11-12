@@ -3,8 +3,10 @@ import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { toBusinessDate } from "@/lib/dates";
 import { upcomingForLoan } from "@/lib/referral";
+import { loanSituation } from "@/lib/loan-situation";
 import { attributeInterest, type LoanFull } from "@/lib/reporting";
 import type { ToolDef } from "@/lib/ai/client";
+import type { LoanStatus } from "@/generated/prisma/enums";
 
 // ---------------------------------------------------------------------------
 // Read-only lookups Lendo AI can use to answer questions ("Ask Lendo").
@@ -20,7 +22,7 @@ const STATUS: Record<string, string> = {
   WRITTEN_OFF: "written off",
 };
 
-type FullLoan = LoanFull & { status: string; issuedBy: { name: string } };
+type FullLoan = LoanFull & { status: LoanStatus; issuedBy: { name: string } };
 
 const n = (d: Decimal | number) => Math.round(Number(d));
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -170,20 +172,31 @@ function stateOf(l: FullLoan) {
 
 function owesNow(l: FullLoan): number {
   if (l.status === "WRITTEN_OFF") return 0;
-  const st = stateOf(l);
-  return st.isSettled ? 0 : n(st.settlementAmountNow);
+  return n(loanSituation(l).toClear);
 }
 
-/** Days the current round is late (0 if not late). */
-function daysLate(l: FullLoan, today: Date): number {
-  const st = stateOf(l);
-  if (st.isSettled || st.currentCycle == null || l.status === "WRITTEN_OFF") return 0;
-  const inst = l.installments.find((i) => i.cycleNumber === st.currentCycle);
-  if (!inst) return 0;
-  return Math.max(0, Math.round((today.getTime() - toBusinessDate(inst.dueDate).getTime()) / DAY));
+/** Days the current round is late (0 if not late) — same rule as everywhere. */
+function daysLate(l: FullLoan): number {
+  if (l.status === "WRITTEN_OFF") return 0;
+  const d = loanSituation(l).daysUntilDue;
+  return d != null && d < 0 ? -d : 0;
 }
 
-function loanStory(l: FullLoan, today: Date) {
+/** What the borrower must do now on this loan (null when repaid). */
+function nowFacts(l: FullLoan) {
+  const sit = loanSituation(l);
+  if (sit.settled || sit.dueDate == null) return null;
+  return {
+    round: `${sit.round} of ${sit.roundsAgreed}`,
+    final_round: sit.isFinalRound,
+    due: iso(sit.dueDate),
+    days_until_due: sit.daysUntilDue,
+    minimum_to_pay: n(sit.minimumDue),
+    to_clear_loan: n(sit.toClear),
+  };
+}
+
+function loanStory(l: FullLoan) {
   const st = stateOf(l);
   const profit = attributeInterest(l);
   return {
@@ -211,7 +224,8 @@ function loanStory(l: FullLoan, today: Date) {
     })),
     total_paid: n(st.totalCollected),
     still_owes_today: owesNow(l),
-    days_late_now: daysLate(l, today),
+    days_late_now: daysLate(l),
+    now: nowFacts(l),
   };
 }
 
@@ -298,7 +312,7 @@ export async function runLendoTool(
           risk: c.riskBand,
           referral: c.referralName ? `${c.referralName} (${c.referralPhone ?? "no phone"})` : null,
           owes_now: loans.reduce((s, l) => s + owesNow(l), 0),
-          loans: loans.map((l) => loanStory(l, today)),
+          loans: loans.map((l) => loanStory(l)),
         });
       }
 
@@ -330,16 +344,18 @@ export async function runLendoTool(
       case "late_loans": {
         const loans = await data.all();
         const rows = loans
-          .map((l) => ({ l, late: daysLate(l, today), owes: owesNow(l) }))
+          .map((l) => ({ l, late: daysLate(l), owes: owesNow(l), sit: loanSituation(l) }))
           .filter((x) => x.late > 0 && x.owes > 0)
           .sort((a, b) => b.late - a.late)
-          .map(({ l, late, owes }) => ({
+          .map(({ l, late, owes, sit }) => ({
             customer: l.customer.fullName,
             phone: l.customer.phone,
             loan: ref(l.id),
+            round: `${sit.round} of ${sit.roundsAgreed}`,
+            final_round: sit.isFinalRound,
             days_late: late,
+            overdue_now: n(sit.minimumDue),
             owes_now: owes,
-            status: STATUS[l.status] ?? l.status,
             referral: l.customer.referralName,
           }));
         return JSON.stringify(rows);

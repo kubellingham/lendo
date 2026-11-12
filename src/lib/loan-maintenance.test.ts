@@ -10,6 +10,7 @@ describe("neededCycleCount", () => {
     expect(neededCycleCount(disbursed, D("2026-01-01"), 30, 3)).toBe(3);
     expect(neededCycleCount(disbursed, D("2026-02-10"), 30, 3)).toBe(3); // day 40
     expect(neededCycleCount(disbursed, D("2026-03-31"), 30, 3)).toBe(3); // day 89
+    expect(neededCycleCount(disbursed, D("2026-04-01"), 30, 3)).toBe(3); // day 90 = final due date
   });
 
   it("adds a 4th cycle once past day 90", () => {

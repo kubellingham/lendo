@@ -11,6 +11,7 @@ import { toDbString } from "@/lib/money";
 import { parseIsoDate, nowInTz } from "@/lib/dates";
 import { Role, type InstallmentStatus } from "@/generated/prisma/enums";
 import { recomputeCustomerRisk } from "@/lib/customer-risk";
+import { clearBriefingCache } from "@/lib/ai/briefing";
 import {
   assessEligibility,
   bandMeta,
@@ -202,6 +203,7 @@ export async function issueLoan(input: LoanInput): Promise<LoanActionResult> {
   }
 
   revalidatePath("/loans");
+  await clearBriefingCache();
   revalidatePath(`/customers/${customer.id}`);
   return { ok: true, id: loan.id, redirectTo: `/loans/${loan.id}` };
 }

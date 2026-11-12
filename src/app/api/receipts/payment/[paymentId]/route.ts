@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
-import { formatDateTime } from "@/lib/dates";
+import { formatDateTime, formatPaidAt } from "@/lib/dates";
 import { buildReceiptPdf, type ReceiptRow } from "@/lib/pdf/receipt";
 
 export const runtime = "nodejs";
@@ -71,7 +71,7 @@ export async function GET(
     ...(payment.reference
       ? [{ label: "Transaction ref", value: payment.reference }]
       : []),
-    { label: "Received on", value: formatDateTime(payment.paidAt) },
+    { label: "Received on", value: formatPaidAt(payment.paidAt) },
     { label: "Recorded by", value: payment.recordedBy.name },
     {
       label: settled ? "Remaining balance" : "Principal outstanding",

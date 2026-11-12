@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { Plus, Banknote, Receipt, Users } from "lucide-react";
-import type Decimal from "decimal.js";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
 import { db } from "@/lib/db";
-import { computeLoanState } from "@/lib/loan-calc";
-import { add, formatTZS, money } from "@/lib/money";
+import { money } from "@/lib/money";
 import { fmtMoney, isDemo } from "@/lib/demo-mode";
 import { aiConfigured } from "@/lib/ai/client";
+import { dueWhenText, loanSituation } from "@/lib/loan-situation";
 import { MorningBriefing } from "@/components/ai/morning-briefing";
 import { formatDate, startOfTodayUtc, addBusinessDays } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
@@ -75,7 +74,6 @@ export default async function DashboardPage() {
   const canWrite = WRITE_ROLES.includes(user.role);
 
   const today = startOfTodayUtc();
-  const in7 = addBusinessDays(today, 7);
   // Start of "this week" = Monday 00:00 UTC.
   const dayOfWeek = today.getUTCDay() === 0 ? 6 : today.getUTCDay() - 1;
   const startOfWeek = addBusinessDays(today, -dayOfWeek);
@@ -85,9 +83,7 @@ export default async function DashboardPage() {
     overdueLoans,
     defaultedLoans,
     customerCount,
-    activeAndOverdueLoans,
-    upcomingInstallments,
-    overdueInstallments,
+    openLoans,
     recentPayments,
     weekCollectedAgg,
     monthCollectedAgg,
@@ -96,39 +92,20 @@ export default async function DashboardPage() {
     db.loan.count({ where: { status: "OVERDUE" } }),
     db.loan.count({ where: { status: "DEFAULTED" } }),
     db.customer.count(),
+    // Every loan still owing — due/overdue lists are worked out from these
+    // with the shared calculation (real rounds, real amounts, real dates).
     db.loan.findMany({
-      where: { status: { in: ["ACTIVE", "OVERDUE"] } },
+      where: { status: { in: ["ACTIVE", "OVERDUE", "DEFAULTED"] } },
       select: {
         id: true,
         principal: true,
         status: true,
+        interestRatePct: true,
+        cyclesAllowed: true,
+        dueAt: true,
+        customer: { select: { fullName: true } },
         installments: { orderBy: { cycleNumber: "asc" } },
         payments: { select: { amount: true, installmentId: true } },
-      },
-    }),
-    db.installment.findMany({
-      where: {
-        status: { in: ["PENDING", "INTEREST_PAID"] },
-        dueDate: { gte: today, lte: in7 },
-      },
-      orderBy: { dueDate: "asc" },
-      take: 10,
-      include: {
-        loan: {
-          select: { id: true, customer: { select: { fullName: true } } },
-        },
-      },
-    }),
-    // Pull enough overdue installments to cover repeats — we group by loan
-    // in JS so one loan with 3 overdue cycles shows as a single row.
-    db.installment.findMany({
-      where: { status: "OVERDUE" },
-      orderBy: { dueDate: "asc" },
-      take: 200,
-      include: {
-        loan: {
-          select: { id: true, customer: { select: { fullName: true } } },
-        },
       },
     }),
     db.payment.findMany({
@@ -153,47 +130,22 @@ export default async function DashboardPage() {
     }),
   ]);
 
-  // Collapse overdue installments to one row per loan.
-  const overdueByLoan = new Map<
-    string,
-    {
-      loanId: string;
-      customerName: string;
-      earliestDue: Date;
-      cycleCount: number;
-      totalOwed: Decimal;
-    }
-  >();
-  for (const inst of overdueInstallments) {
-    const key = inst.loan.id;
-    const g = overdueByLoan.get(key);
-    if (!g) {
-      overdueByLoan.set(key, {
-        loanId: inst.loan.id,
-        customerName: inst.loan.customer.fullName,
-        earliestDue: inst.dueDate,
-        cycleCount: 1,
-        totalOwed: money(inst.expectedInterest),
-      });
-    } else {
-      g.cycleCount++;
-      g.totalOwed = g.totalOwed.plus(money(inst.expectedInterest));
-    }
-  }
-  const overdueLoanRows = [...overdueByLoan.values()].slice(0, 10);
+  // Due soon / overdue, one row per loan, from the shared calculation.
+  const situations = openLoans.map((loan) => ({ loan, sit: loanSituation(loan) }));
+  const upcomingRows = situations
+    .filter(({ sit }) => !sit.settled && sit.daysUntilDue != null && sit.daysUntilDue >= 0 && sit.daysUntilDue <= 7)
+    .sort((a, b) => a.sit.daysUntilDue! - b.sit.daysUntilDue!)
+    .slice(0, 10);
+  const overdueLoanRows = situations
+    .filter(({ sit }) => !sit.settled && sit.daysUntilDue != null && sit.daysUntilDue < 0)
+    .sort((a, b) => a.sit.daysUntilDue! - b.sit.daysUntilDue!)
+    .slice(0, 10);
 
   let outstanding = money(0);
-  for (const loan of activeAndOverdueLoans) {
-    const state = computeLoanState({
-      principal: loan.principal,
-      status: loan.status,
-      installments: loan.installments,
-      payments: loan.payments.map((p) => ({
-        amount: p.amount,
-        installmentId: p.installmentId,
-      })),
-    });
-    outstanding = outstanding.plus(state.principalOutstanding);
+  for (const { loan, sit } of situations) {
+    if (loan.status === "ACTIVE" || loan.status === "OVERDUE") {
+      outstanding = outstanding.plus(sit.principalOutstanding);
+    }
   }
 
   const riskGroups = await db.customer.groupBy({
@@ -264,27 +216,29 @@ export default async function DashboardPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {upcomingInstallments.length === 0 ? (
+            {upcomingRows.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nothing due in the next 7 days.
               </p>
             ) : (
               <ul className="space-y-2">
-                {upcomingInstallments.map((i) => (
-                  <li key={i.id}>
+                {upcomingRows.map(({ loan, sit }) => (
+                  <li key={loan.id}>
                     <Link
-                      href={`/loans/${i.loan.id}`}
+                      href={`/loans/${loan.id}`}
                       className="flex items-center gap-3 rounded-md border p-2 text-sm hover:bg-accent"
                     >
-                      <Avatar name={i.loan.customer.fullName} size="sm" />
+                      <Avatar name={loan.customer.fullName} size="sm" />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium">{i.loan.customer.fullName}</div>
+                        <div className="font-medium">{loan.customer.fullName}</div>
                         <div className="text-xs text-muted-foreground">
-                          Cycle {i.cycleNumber} · due {formatDate(i.dueDate)}
+                          Round {sit.round}
+                          {sit.isFinalRound ? " (final — pay in full)" : ""} · due{" "}
+                          {dueWhenText(sit.daysUntilDue!)}, {formatDate(sit.dueDate!)}
                         </div>
                       </div>
                       <span className="text-sm font-medium">
-                        {fmtMoney(i.expectedInterest.toString(), demo)}
+                        {fmtMoney(sit.minimumDue.toString(), demo)}
                       </span>
                     </Link>
                   </li>
@@ -307,24 +261,23 @@ export default async function DashboardPage() {
               </p>
             ) : (
               <ul className="space-y-2">
-                {overdueLoanRows.map((g) => (
-                  <li key={g.loanId}>
+                {overdueLoanRows.map(({ loan, sit }) => (
+                  <li key={loan.id}>
                     <Link
-                      href={`/loans/${g.loanId}`}
+                      href={`/loans/${loan.id}`}
                       className="flex items-center gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-sm hover:bg-destructive/10"
                     >
-                      <Avatar name={g.customerName} size="sm" tone="danger" />
+                      <Avatar name={loan.customer.fullName} size="sm" tone="danger" />
                       <div className="min-w-0 flex-1">
-                        <div className="font-medium">{g.customerName}</div>
+                        <div className="font-medium">{loan.customer.fullName}</div>
                         <div className="text-xs text-muted-foreground">
-                          {g.cycleCount === 1
-                            ? "1 cycle overdue"
-                            : `${g.cycleCount} cycles overdue`}{" "}
-                          · since {formatDate(g.earliestDue)}
+                          Round {sit.round}
+                          {sit.isFinalRound ? " (final)" : ""} · {-sit.daysUntilDue!} day(s) late · was due{" "}
+                          {formatDate(sit.dueDate!)}
                         </div>
                       </div>
                       <span className="text-sm font-medium">
-                        {fmtMoney(g.totalOwed.toString(), demo)}
+                        {fmtMoney(sit.minimumDue.toString(), demo)}
                       </span>
                     </Link>
                   </li>

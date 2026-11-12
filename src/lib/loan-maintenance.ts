@@ -24,7 +24,9 @@ export function neededCycleCount(
 ): number {
   const dayMs = 24 * 60 * 60 * 1000;
   const daysSince = Math.floor((today.getTime() - disbursedAt.getTime()) / dayMs);
-  const started = Math.floor(Math.max(0, daysSince) / cycleDays) + 1;
+  // A round's due date is the last day of that round: day 90 still belongs to
+  // round 3; a 4th round only starts on day 91 (if the loan isn't cleared).
+  const started = daysSince <= 0 ? 1 : Math.floor((daysSince - 1) / cycleDays) + 1;
   return Math.max(cyclesAllowed, Math.min(started, MAX_CYCLES));
 }
 

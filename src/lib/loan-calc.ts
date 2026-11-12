@@ -80,6 +80,11 @@ export function deriveStatuses(
 ): DerivedStatuses {
   const settled = state.principalOutstanding.lte(0);
   const installmentStatuses: Record<string, InstallmentStatus> = {};
+  // `now` is wall-clock time in Tanzania (nowInTz) and due dates are calendar
+  // dates at midnight. A payment is late only once its due date has fully
+  // passed — paying on the due date itself is on time.
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const past = (due: Date) => now.getTime() >= due.getTime() + DAY_MS;
 
   for (const inst of loan.installments) {
     const paid = state.perInstallmentPaid[inst.id] ?? new Decimal(0);
@@ -98,7 +103,7 @@ export function deriveStatuses(
     } else if (interestOwed.eq(0)) {
       // Cycle carries no interest (principal already zero) — nothing to owe.
       status = "SETTLED";
-    } else if (now.getTime() > inst.dueDate.getTime()) {
+    } else if (past(inst.dueDate)) {
       status = "OVERDUE";
     } else {
       status = "PENDING";
@@ -113,7 +118,7 @@ export function deriveStatuses(
   let loanStatus: LoanStatus;
   if (settled) {
     loanStatus = "SETTLED";
-  } else if (now.getTime() > loanDueAt.getTime()) {
+  } else if (past(loanDueAt)) {
     loanStatus = "DEFAULTED";
   } else if (
     // Reached the final (or an extended) cycle and only paid its interest

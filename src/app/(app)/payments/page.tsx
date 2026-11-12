@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Download } from "lucide-react";
 import { requireUser } from "@/lib/rbac";
 import { getPaymentsLedger } from "@/lib/queries/payments";
-import { formatDateTime } from "@/lib/dates";
+import { formatPaidAt } from "@/lib/dates";
 import { formatTZS, add } from "@/lib/money";
 import { fmtMoney, fmtPhone, isDemo } from "@/lib/demo-mode";
 import { PageHeader } from "@/components/layout/page-header";
@@ -29,7 +29,7 @@ export default async function PaymentsPage({
   const rows: PaymentRow[] = payments.map((p) => ({
     id: p.id,
     loanId: p.loan.id,
-    date: formatDateTime(p.paidAt),
+    date: formatPaidAt(p.paidAt),
     dateMs: p.paidAt.getTime(),
     customer: p.loan.customer.fullName,
     phone: fmtPhone(p.loan.customer.phone, demo),

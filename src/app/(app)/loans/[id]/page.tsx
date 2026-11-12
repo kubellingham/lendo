@@ -4,8 +4,8 @@ import { FileDown } from "lucide-react";
 import { db } from "@/lib/db";
 import { Button } from "@/components/ui/button";
 import { requireUser, WRITE_ROLES } from "@/lib/rbac";
-import { formatDate, formatDateTime, toIsoDate } from "@/lib/dates";
-import { formatTZS, money, toDbString } from "@/lib/money";
+import { formatDate, toIsoDate } from "@/lib/dates";
+import { money, toDbString } from "@/lib/money";
 import { fmtMoney, fmtPhone, isDemo } from "@/lib/demo-mode";
 import { computeLoanState } from "@/lib/loan-calc";
 import { ensureLoanCycles } from "@/lib/loan-maintenance";
@@ -38,6 +38,7 @@ import { LoanActions } from "@/components/loans/loan-actions";
 import { SendMessage } from "@/components/messaging/send-message";
 import { AiPrefillBanner } from "@/components/ai/ai-prefill-banner";
 import { upcomingForLoan } from "@/lib/referral";
+import { bestTemplateFor, loanSituation } from "@/lib/loan-situation";
 import { Avatar } from "@/components/ui/avatar";
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -157,13 +158,15 @@ export default async function LoanDetailPage({
                   })),
                 }) !== null
               }
-              defaultTemplateKey={
-                loan.status === "SETTLED"
-                  ? "loan_settled"
-                  : loan.status === "OVERDUE" || loan.status === "DEFAULTED"
-                    ? "overdue"
-                    : "reminder_3d"
-              }
+              defaultTemplateKey={bestTemplateFor(
+                loanSituation({
+                  ...loan,
+                  payments: loan.payments.map((p) => ({
+                    amount: p.amount,
+                    installmentId: p.installmentId,
+                  })),
+                }),
+              )}
             />
             {canWrite ? (
               <LoanActions

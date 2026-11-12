@@ -1,18 +1,20 @@
 import Decimal from "decimal.js";
 import { db } from "@/lib/db";
-import {
-  computeLoanState,
-  deriveStatuses,
-  type LoanStateInput,
-} from "@/lib/loan-calc";
+import { computeLoanState, type LoanStateInput } from "@/lib/loan-calc";
 import { money, round2 } from "@/lib/money";
-import { formatDate, nowInTz, toBusinessDate } from "@/lib/dates";
+import { formatDate, toBusinessDate } from "@/lib/dates";
+import { loanSituation } from "@/lib/loan-situation";
 
 export type ReferralLoanLine = {
   loanId: string;
   loanRef: string;
   principal: Decimal;
+  /** What is overdue now: the round's interest, or everything on the final round. */
   amountDue: Decimal;
+  /** Paying this clears the loan. */
+  toClear: Decimal;
+  round: number | null;
+  isFinalRound: boolean;
   dueDate: Date;
   daysOverdue: number;
 };
@@ -22,7 +24,10 @@ export type ReferralOverdue = {
   referralName: string | null;
   referralPhone: string | null;
   loans: ReferralLoanLine[];
+  /** Total overdue now (sum of amountDue). */
   total: Decimal;
+  /** Total to clear every overdue loan. */
+  totalToClear: Decimal;
 };
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -61,56 +66,23 @@ export async function getReferralOverdue(
   });
   if (!customer) return null;
 
-  const now = nowInTz();
+  // Same calculation as every other message: a loan is overdue when its
+  // current round's due date (Tanzania calendar days) has passed.
   const loans: ReferralLoanLine[] = [];
-  let total = money(0);
-
   for (const loan of customer.loans) {
-    const state = computeLoanState({
-      principal: loan.principal,
-      status: loan.status,
-      interestRatePct: loan.interestRatePct,
-      installments: loan.installments,
-      payments: loan.payments,
-    });
-    const { loanStatus } = deriveStatuses(
-      {
-        principal: loan.principal,
-        status: loan.status,
-        interestRatePct: loan.interestRatePct,
-        cyclesAllowed: loan.cyclesAllowed,
-        installments: loan.installments,
-        payments: [],
-      },
-      state,
-      state.currentCycle ?? loan.cyclesAllowed,
-      loan.dueAt,
-      now,
-    );
-    if (loanStatus !== "OVERDUE" && loanStatus !== "DEFAULTED") continue;
-
-    // Use the *earliest still-owing* installment's due date — same rule the
-    // per-loan overdue message uses — so the two messages agree on the same
-    // loan. Falls back to the loan's final due date if every installment has
-    // its interest covered (principal-only remaining).
-    const currentInst = loan.installments.find(
-      (i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID",
-    );
-    const dueDateSource =
-      currentInst?.dueDate ?? loan.dueAt ?? loan.installments[0].dueDate;
-    const daysOverdue = Math.max(
-      0,
-      Math.floor((now.getTime() - dueDateSource.getTime()) / DAY),
-    );
+    const sit = loanSituation(loan);
+    if (sit.settled || sit.dueDate == null || sit.daysUntilDue == null || sit.daysUntilDue >= 0) continue;
     loans.push({
       loanId: loan.id,
       loanRef: loanRef(loan.id),
       principal: money(loan.principal),
-      amountDue: state.settlementAmountNow,
-      dueDate: dueDateSource,
-      daysOverdue,
+      amountDue: round2(sit.minimumDue),
+      toClear: round2(sit.toClear),
+      round: sit.round,
+      isFinalRound: sit.isFinalRound,
+      dueDate: sit.dueDate,
+      daysOverdue: -sit.daysUntilDue,
     });
-    total = total.plus(state.settlementAmountNow);
   }
 
   return {
@@ -118,7 +90,8 @@ export async function getReferralOverdue(
     referralName: customer.referralName,
     referralPhone: customer.referralPhone,
     loans,
-    total: round2(total),
+    total: round2(loans.reduce((t, l) => t.plus(l.amountDue), money(0))),
+    totalToClear: round2(loans.reduce((t, l) => t.plus(l.toClear), money(0))),
   };
 }
 
@@ -127,33 +100,34 @@ export function buildReferralMessage(
   d: ReferralOverdue,
   pay?: { bank: string; accountName: string; accountNumber: string },
 ): string {
-  const count = d.loans.length;
+  const single = d.loans.length === 1;
   const lines = d.loans
     .map((l, i) => {
-      const overdue =
-        l.daysOverdue > 0 ? `, ${l.daysOverdue} day(s) overdue` : "";
-      return `${i + 1}. ${l.loanRef} — TSh ${num(l.amountDue)} (due ${formatDate(
-        l.dueDate,
-      )}${overdue})`;
+      const head = `${single ? "" : `${i + 1}. `}*${l.loanRef}* — was due ${formatDate(l.dueDate)}, *${l.daysOverdue} day(s) overdue*`;
+      const detail = l.isFinalRound
+        ? `   • Overdue: TSh ${num(l.amountDue)} (final round — the full balance)`
+        : `   • Overdue: TSh ${num(l.amountDue)} (interest for round ${l.round})\n   • To clear the loan: TSh ${num(l.toClear)}`;
+      return `${head}\n${detail}`;
     })
-    .join("\n");
+    .join("\n\n");
 
-  const single = count === 1;
   const intro = single
-    ? `has an outstanding loan with Lendo`
-    : `has ${count} outstanding loans with Lendo`;
-
+    ? "has a Lendo loan payment that is overdue"
+    : `has ${d.loans.length} Lendo loan payments that are overdue`;
+  const totals = single
+    ? ""
+    : `\n\n*Overdue now: TSh ${num(d.total)}*\nTo clear all these loans: TSh ${num(d.totalToClear)}`;
   const payBlock = pay
-    ? `\n*How they can pay*\n• Bank: ${pay.bank}\n• Account name: ${pay.accountName}\n• Account number: ${pay.accountNumber}\n`
+    ? `\n\n*How they can pay*\n• Bank: ${pay.bank}\n• Account name: ${pay.accountName}\n• Account number: ${pay.accountNumber}`
     : "";
 
   return `Dear ${d.referralName || "referrer"},
 
-Your referral, *${d.borrowerName}*, ${intro}, totalling *TSh ${num(d.total)}* still to be paid:
+Your referral, *${d.borrowerName}*, ${intro}:
 
-${lines}
-${payBlock}
-Please kindly remind them to clear the outstanding amount as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
+${lines}${totals}${payBlock}
+
+Please kindly remind them to pay as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
 
 Thank you for your cooperation and continued support.
 
@@ -336,6 +310,7 @@ export function pickOverdue(
     ...d,
     loans,
     total: round2(loans.reduce((s, l) => s.plus(l.amountDue), money(0))),
+    totalToClear: round2(loans.reduce((s, l) => s.plus(l.toClear), money(0))),
   };
 }
 

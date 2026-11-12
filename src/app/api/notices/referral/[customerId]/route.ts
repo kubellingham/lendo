@@ -95,7 +95,8 @@ export async function GET(
     l.loanRef,
     formatDate(l.dueDate),
     l.daysOverdue > 0 ? `${l.daysOverdue}` : "0",
-    "TSh " + num(l.amountDue),
+    "TSh " + num(l.amountDue) + (l.isFinalRound ? " (full)" : ""),
+    "TSh " + num(l.toClear),
   ]);
 
   const infoRows: ReceiptRow[] = [
@@ -104,6 +105,7 @@ export async function GET(
       label: "Overdue loans",
       value: String(summary.loans.length),
     },
+    { label: "To clear all these loans", value: "TSh " + num(summary.totalToClear) },
     { label: "— How they can pay —", value: "" },
     { label: "Bank", value: pay.bank },
     { label: "Account name", value: pay.accountName },
@@ -118,17 +120,17 @@ export async function GET(
     customerPhone: summary.referralPhone || "—",
     summary: infoRows,
     highlight: {
-      label: "Total outstanding",
+      label: "Overdue now",
       value: "TSh " + num(summary.total),
     },
     table: {
-      title: "Outstanding loans",
-      columns: ["Loan", "Was due", "Days overdue", "Amount"],
-      rightAlign: [2, 3],
+      title: "Overdue loans",
+      columns: ["Loan", "Was due", "Days late", "Overdue", "To clear"],
+      rightAlign: [2, 3, 4],
       rows,
     },
     footerNote:
-      "Kindly remind your referral to clear the total outstanding amount as soon as possible.",
+      "Kindly remind your referral to pay the overdue amount as soon as possible.",
     tagline: "Helping you move forward.",
   });
 

@@ -26,7 +26,7 @@ export async function briefingFacts() {
     run("business_totals", { from: monthStart, to: iso(today) }),
   ]);
   type Due = { in_days: number };
-  type Late = { customer: string; days_late: number; owes_now: number };
+  type Late = { customer: string; days_late: number; owes_now: number; overdue_now: number };
   const lateList = Array.isArray(late) ? (late as Late[]) : [];
   return {
     today: formatDate(today, "EEEE d MMM yyyy"),
@@ -35,7 +35,8 @@ export async function briefingFacts() {
     late_now: {
       people: new Set(lateList.map((l) => l.customer)).size,
       loans: lateList.length,
-      total_owed: lateList.reduce((s, l) => s + l.owes_now, 0),
+      total_overdue_now: lateList.reduce((s, l) => s + l.overdue_now, 0),
+      total_to_clear: lateList.reduce((s, l) => s + l.owes_now, 0),
       list: lateList.slice(0, 10),
     },
     just_became_late: lateList.filter((l) => l.days_late <= 3),
@@ -48,8 +49,8 @@ function prompt(lang: BriefingLang) {
   return `You write the morning briefing for the owner of Lendo, a small lending business in Tanzania. You get today's facts as JSON.
 
 Write 4 to 7 short bullet points, most urgent first:
-1. Who to chase today (late loans — longest late and biggest amounts first; mention anyone who just became late).
-2. Payments due today, then in the next 3 days (name, amount due).
+1. Who to chase today (late loans — longest late and biggest amounts first; mention anyone who just became late). For each: name, days late, and the amount overdue now ("overdue_now"); the whole balance ("owes_now") only as "to clear".
+2. Payments due today, then in the next 3 days (name, "minimum_due"; say "full balance" when final_round is true).
 3. Money received yesterday (total and who paid).
 4. This month so far: money received and profit (interest).
 Skip any point with nothing in it. Count people and loans separately (one person can have several loans). Use names and amounts exactly as in the facts — never invent or estimate. Money as "TSh 1,250,000".
@@ -98,4 +99,13 @@ export async function saveBriefing(lang: BriefingLang, text: string): Promise<Sa
     where: { key: { startsWith: KEY_PREFIX, not: { startsWith: key.slice(0, KEY_PREFIX.length + 10) } } },
   });
   return saved;
+}
+
+/** Forget today's saved briefings (after money moves) so the next view is fresh. */
+export async function clearBriefingCache(): Promise<void> {
+  try {
+    await db.setting.deleteMany({ where: { key: { startsWith: KEY_PREFIX } } });
+  } catch (err) {
+    console.error("[clearBriefingCache]", err);
+  }
 }

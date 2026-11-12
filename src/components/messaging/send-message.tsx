@@ -143,10 +143,17 @@ export function SendMessage({
   const [windowDays, setWindowDays] = useState(DEFAULT_WINDOW);
   // Lendo AI rewrite
   const [recipient, setRecipient] = useState("");
+  // Where the loan stands, and a warning if the template doesn't fit.
+  const [situation, setSituation] = useState<string | null>(null);
+  const [mismatch, setMismatch] = useState<{ warning: string; suggestedKey?: string } | null>(null);
   const [lang, setLang] = useState<Language>("sw");
   const [tone, setTone] = useState<Tone>("auto");
   const [beforeRewrite, setBeforeRewrite] = useState<string | null>(null);
-  const [rewriteNote, setRewriteNote] = useState<{ tone: string; missing: string[] } | null>(null);
+  const [rewriteNote, setRewriteNote] = useState<{
+    tone: string;
+    reason: string | null;
+    problems: string[];
+  } | null>(null);
   const [rewriting, startRewrite] = useTransition();
 
   function rewrite() {
@@ -160,6 +167,7 @@ export function SendMessage({
         tone,
         context,
         recipientName: recipient || undefined,
+        templateKey: key,
       });
       if (!res.ok) {
         setError(res.error);
@@ -167,7 +175,12 @@ export function SendMessage({
       }
       setBeforeRewrite(original);
       setMessage(res.message);
-      setRewriteNote({ tone: res.toneUsed, missing: res.missing });
+      const problems = [
+        ...(res.missing.length ? [`missing from the new text: ${res.missing.join(", ")}`] : []),
+        ...(res.added.length ? [`new numbers that weren't in the original: ${res.added.join(", ")}`] : []),
+        ...res.timing,
+      ];
+      setRewriteNote({ tone: res.toneUsed, reason: res.toneReason, problems });
     });
   }
 
@@ -230,10 +243,14 @@ export function SendMessage({
         setError(res.error);
         setMessage("");
         setPhone("");
+        setSituation(null);
+        setMismatch(null);
         return;
       }
       setPhone(res.phoneE164);
       setRecipient(res.customerName);
+      setSituation(res.situation ?? null);
+      setMismatch(res.warning ? { warning: res.warning, suggestedKey: res.suggestedKey } : null);
       setBeforeRewrite(null);
       setRewriteNote(null);
       const list = res.referralLoans;
@@ -414,6 +431,31 @@ export function SendMessage({
             </div>
           ) : null}
 
+          {situation ? (
+            <p className="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">This loan now: </span>
+              {situation}
+            </p>
+          ) : null}
+          {mismatch ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <span>{mismatch.warning}</span>
+              {mismatch.suggestedKey &&
+              mismatch.suggestedKey !== key &&
+              available.some((t) => t.key === mismatch.suggestedKey) ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => loadPreview(mismatch.suggestedKey!)}
+                  disabled={pending}
+                >
+                  Use “{available.find((t) => t.key === mismatch.suggestedKey)?.label}”
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label>Message (edit if needed)</Label>
@@ -467,15 +509,21 @@ export function SendMessage({
               ) : null}
             </div>
             {rewriteNote ? (
-              rewriteNote.missing.length ? (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                  Check before sending: these details from the original aren&apos;t in the new text —{" "}
-                  <span className="font-mono">{rewriteNote.missing.join(", ")}</span>. Add them back or press Undo.
-                </p>
+              rewriteNote.problems.length ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+                  <p className="font-medium">Check before sending — the rewrite changed some details:</p>
+                  <ul className="mt-0.5 list-disc pl-4">
+                    {rewriteNote.problems.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-0.5">Fix them in the text, rewrite again, or press Undo.</p>
+                </div>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Rewritten ({rewriteNote.tone} tone). All amounts, dates and account details from the original are
-                  still there — read it once before sending.
+                  Rewritten in a {rewriteNote.tone} tone
+                  {rewriteNote.reason ? ` (auto: ${rewriteNote.reason})` : ""}. All amounts, dates, days and
+                  account details match the original — read it once before sending.
                 </p>
               )
             ) : null}

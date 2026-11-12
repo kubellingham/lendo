@@ -61,6 +61,19 @@ export function formatDate(date: Date, pattern = "dd MMM yyyy"): string {
 }
 
 /** Format a date-time for display, e.g. "29 Jun 2026, 14:05". */
+/**
+ * Format a payment date. Payments are recorded as a calendar date (stored as
+ * UTC midnight), so there is no real time of day — show the date alone rather
+ * than a made-up "03:00". Older rows with a real time keep it.
+ */
+export function formatPaidAt(date: Date, datePattern = "dd MMM yyyy", timePattern = ", HH:mm"): string {
+  const dateOnly =
+    date.getUTCHours() === 0 && date.getUTCMinutes() === 0 && date.getUTCSeconds() === 0 && date.getUTCMilliseconds() === 0;
+  return dateOnly
+    ? formatInTimeZone(date, "UTC", datePattern)
+    : formatInTimeZone(date, APP_TIMEZONE, datePattern + timePattern);
+}
+
 export function formatDateTime(
   date: Date,
   pattern = "dd MMM yyyy, HH:mm",

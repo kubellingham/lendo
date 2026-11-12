@@ -3,7 +3,7 @@
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/rbac";
 import { computeLoanState } from "@/lib/loan-calc";
-import { formatDate, formatDateTime } from "@/lib/dates";
+import { formatDate, formatPaidAt } from "@/lib/dates";
 import { getTemplate, renderMessage } from "@/lib/message-templates";
 import {
   getReferralOverdue,
@@ -17,6 +17,14 @@ import {
   dueWhen,
 } from "@/lib/referral";
 import { getPaymentDetails } from "@/lib/settings";
+import {
+  amountLines,
+  bestTemplateFor,
+  dueWhenText,
+  loanSituation,
+  situationSummary,
+  templateMismatch,
+} from "@/lib/loan-situation";
 
 /** One loan the staff member can switch on/off in a referral message. */
 export type ReferralPick = {
@@ -38,6 +46,12 @@ export type MessagePreview = {
   loanRef: string | null;
   /** Every loan that could go into a referral message (for the on/off list). */
   referralLoans?: ReferralPick[];
+  /** Plain sentence for staff: where this loan stands right now. */
+  situation?: string;
+  /** Set when the chosen template doesn't fit the loan right now. */
+  warning?: string | null;
+  /** The template that fits best (offered when there's a warning). */
+  suggestedKey?: string;
 };
 
 export type MessageError = { ok: false; error: string };
@@ -46,6 +60,13 @@ export type MessageError = { ok: false; error: string };
 function loanRef(loanId: string): string {
   return "LND-" + loanId.slice(-6).toUpperCase();
 }
+
+const METHOD_LABEL: Record<string, string> = {
+  CASH: "Cash",
+  MPESA: "Mobile money (M-Pesa etc.)",
+  BANK: "Bank transfer",
+  OTHER: "Other",
+};
 
 function tsh(n: unknown): string {
   const num = Number(n ?? 0);
@@ -132,21 +153,13 @@ export async function previewLoanMessage(
       };
     }
 
-    const currentInst = loan.installments.find(
-      (i) => i.status !== "SETTLED" && i.status !== "INTEREST_PAID",
-    );
-    const dueDateSource =
-      currentInst?.dueDate ?? loan.dueAt ?? loan.installments[0].dueDate;
-
-    const nowMs = Date.now();
-    const daysOverdue = Math.max(
-      0,
-      Math.floor((nowMs - dueDateSource.getTime()) / (24 * 60 * 60 * 1000)),
-    );
-
-    const interestForCurrent = currentInst
-      ? state.perInstallmentInterestOwed[currentInst.id]
-      : state.interestOnlyNow;
+    // Where the loan stands right now (round, real days to the due date,
+    // what must be paid) — the same calculation everywhere in Lendo.
+    const sit = loanSituation(loan);
+    const dueDateSource = sit.dueDate ?? loan.dueAt;
+    const daysOverdue =
+      sit.daysUntilDue != null && sit.daysUntilDue < 0 ? -sit.daysUntilDue : 0;
+    const first = loan.installments[0];
 
     const lastPayment = loan.payments[0];
     const totalRepaid = state.totalCollected;
@@ -168,15 +181,23 @@ export async function previewLoanMessage(
       referralName: loan.customer.referralName || "referrer",
       loanRef: loanRef(loan.id),
       principal: tsh(loan.principal),
-      interest: tsh(interestForCurrent),
+      interest: tsh(sit.interestDue),
       interestRate: `${loan.interestRatePct}%`,
       outstanding: tsh(state.principalOutstanding),
-      totalDue: tsh(state.settlementAmountNow),
+      totalDue: tsh(sit.toClear),
+      minimumDue: tsh(sit.minimumDue),
+      amountLines: amountLines(sit),
+      round: sit.round ?? "—",
+      roundsAgreed: loan.cyclesAllowed,
+      dueWhen: dueWhenText(sit.daysUntilDue ?? 0),
       dueDate: formatDate(dueDateSource),
+      finalDueDate: formatDate(loan.dueAt),
+      firstDueDate: first ? formatDate(first.dueDate) : "—",
+      firstInterest: first ? tsh(first.expectedInterest) : "—",
       disbursedDate: formatDate(loan.disbursedAt),
       daysOverdue,
       totalRepaid: tsh(totalRepaid),
-      paidAt: lastPayment ? formatDateTime(lastPayment.paidAt) : "—",
+      paidAt: lastPayment ? formatPaidAt(lastPayment.paidAt) : "—",
       paymentBank: pay.bank,
       paymentAccountName: pay.accountName,
       paymentAccountNumber: pay.accountNumber,
@@ -192,6 +213,9 @@ export async function previewLoanMessage(
         ? loan.customer.referralPhone ?? ""
         : loan.customer.phone,
       loanRef: loanRef(loan.id),
+      situation: situationSummary(sit),
+      warning: templateMismatch(templateKey, sit),
+      suggestedKey: bestTemplateFor(sit),
     };
   } catch (err) {
     console.error("[previewLoanMessage]", err);
@@ -226,7 +250,7 @@ export async function previewPaymentMessage(
             customer: { select: { fullName: true, phone: true } },
             installments: { orderBy: { cycleNumber: "asc" } },
             payments: {
-              select: { amount: true, installmentId: true },
+              select: { id: true, amount: true, installmentId: true, paidAt: true, createdAt: true },
             },
           },
         },
@@ -235,13 +259,15 @@ export async function previewPaymentMessage(
     if (!payment) return { ok: false, error: "Payment not found." };
 
     const loan = payment.loan;
-    const state = computeLoanState({
-      principal: loan.principal,
-      status: loan.status,
-      interestRatePct: loan.interestRatePct,
-      installments: loan.installments,
-      payments: loan.payments,
-    });
+    // Balance as it stood right after THIS payment (not today's), so an
+    // older receipt still shows the right figures.
+    const ordered = [...loan.payments].sort(
+      (a, b) => a.paidAt.getTime() - b.paidAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
+    );
+    const upTo = ordered.slice(0, ordered.findIndex((p) => p.id === payment.id) + 1);
+    const asOf = { ...loan, status: "ACTIVE" as const, payments: upTo };
+    const state = computeLoanState(asOf);
+    const after = loanSituation(asOf, payment.paidAt);
 
     const settled = state.principalOutstanding.lte(0);
     const effectiveKey = settled && templateKey === "payment_received"
@@ -253,8 +279,14 @@ export async function previewPaymentMessage(
       customerName: loan.customer.fullName,
       loanRef: loanRef(loan.id),
       amountReceived: tsh(payment.amount),
-      method: payment.method,
-      paidAt: formatDateTime(payment.paidAt),
+      method: METHOD_LABEL[payment.method] ?? payment.method,
+      nextPaymentLine:
+        after.settled || !after.dueDate
+          ? ""
+          : after.isFinalRound
+            ? `• Next payment: ${formatDate(after.dueDate)} — TSh ${tsh(after.toClear)} (final round, the full balance)`
+            : `• Next payment: ${formatDate(after.dueDate)} — at least TSh ${tsh(after.minimumDue)} (round ${after.round} interest)`,
+      paidAt: formatPaidAt(payment.paidAt),
       remainingBalance: tsh(state.principalOutstanding),
       totalRepaid: tsh(state.totalCollected),
     });

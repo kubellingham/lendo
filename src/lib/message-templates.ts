@@ -28,19 +28,16 @@ export const MESSAGE_TEMPLATES: MessageTemplate[] = [
   {
     key: "reminder_7d",
     category: "loan",
-    label: "7-day payment reminder",
-    description: "Friendly heads-up one week before the due date.",
+    label: "Payment reminder (detailed)",
+    description: "Friendly heads-up before the due date, with the full breakdown. Uses the real number of days left.",
     body: `Hi {{customerName}} 👋
 
-Just a friendly reminder — your Lendo loan payment is due in *7 days*.
+Just a friendly reminder — your Lendo loan payment for round {{round}} of {{roundsAgreed}} is due *{{dueWhen}}*, on {{dueDate}}.
 
 *Payment details*
 • Loan ref: {{loanRef}}
-• Principal: TSh {{principal}}
-• Interest ({{interestRate}}): TSh {{interest}}
-• Outstanding balance: TSh {{outstanding}}
-• Total due: TSh {{totalDue}}
-• Due date: {{dueDate}}
+• Loan amount: TSh {{principal}}
+{{amountLines}}
 
 *How to pay*
 • Bank: {{paymentBank}}
@@ -59,17 +56,15 @@ _Borrow with confidence. Repay with ease._`,
   {
     key: "reminder_3d",
     category: "loan",
-    label: "3-day payment reminder",
-    description: "A gentler nudge as the due date approaches.",
+    label: "Payment reminder (short)",
+    description: "A short nudge as the due date approaches. Uses the real number of days left.",
     body: `Hi {{customerName}} 👋
 
-Your Lendo loan payment is due in *3 days*. Please arrange payment to avoid any late fees or impact on your account.
+Your Lendo loan payment is due *{{dueWhen}}*, on {{dueDate}}. Please arrange payment on time to keep your account in good standing.
 
 *Payment details*
 • Loan ref: {{loanRef}}
-• Outstanding balance: TSh {{outstanding}}
-• Total due: TSh {{totalDue}}
-• Due date: {{dueDate}}
+{{amountLines}}
 
 *How to pay*
 • Bank: {{paymentBank}}
@@ -95,14 +90,14 @@ _Borrow with confidence. Repay with ease._`,
 A quick reminder — your Lendo loan payment is *due today*, {{dueDate}}.
 
 • Loan ref: {{loanRef}}
-• Amount due: TSh {{totalDue}}
+{{amountLines}}
 
 *How to pay*
 • Bank: {{paymentBank}}
 • Account name: {{paymentAccountName}}
 • Account number: {{paymentAccountNumber}}
 
-Please settle before the end of the day to keep your account current. If you need any help, just reply to this message — we're here for you.
+Please pay before the end of the day to keep your account current. If you need any help, just reply to this message — we're here for you.
 
 — Lendo
 _Borrow with confidence. Repay with ease._`,
@@ -118,10 +113,10 @@ _Borrow with confidence. Repay with ease._`,
     description: "Sent when the due date has passed. Firm but respectful.",
     body: `Hi {{customerName}},
 
-We noticed your Lendo loan payment of *TSh {{totalDue}}* was due on {{dueDate}} and is now *{{daysOverdue}} day(s) overdue*.
+We noticed your Lendo loan payment for round {{round}} of {{roundsAgreed}} was due on {{dueDate}} and is now *{{daysOverdue}} day(s) overdue*.
 
 • Loan ref: {{loanRef}}
-• Outstanding balance: TSh {{outstanding}}
+{{amountLines}}
 
 *How to pay*
 • Bank: {{paymentBank}}
@@ -152,8 +147,9 @@ Your Lendo loan has been *successfully disbursed*.
 • Loan ref: {{loanRef}}
 • Amount received: TSh {{principal}}
 • Disbursed on: {{disbursedDate}}
-• Interest rate: {{interestRate}} per 30-day cycle
-• Full repayment due by: {{dueDate}}
+• Interest: {{interestRate}} of the balance every 30 days ({{roundsAgreed}} rounds)
+• First payment due: {{firstDueDate}} — at least TSh {{firstInterest}} (interest)
+• Full repayment due by: {{finalDueDate}}
 
 Thank you for choosing Lendo. If you have any questions about your repayment schedule, we're just a message away.
 
@@ -168,7 +164,7 @@ _Borrow with confidence. Repay with ease._`,
     key: "payment_received",
     category: "payment",
     label: "Payment received receipt",
-    description: "Sent right after recording a payment.",
+    description: "Receipt for this payment, with the balance right after it.",
     body: `Hi {{customerName}} ✅
 
 We've received your payment. Thank you for paying — we truly appreciate it.
@@ -178,7 +174,8 @@ We've received your payment. Thank you for paying — we truly appreciate it.
 • Amount received: TSh {{amountReceived}}
 • Received on: {{paidAt}}
 • Method: {{method}}
-• Remaining balance: TSh {{remainingBalance}}
+• Loan balance after this payment: TSh {{remainingBalance}}
+{{nextPaymentLine}}
 
 Please keep this message for your records. You're doing great — keep it up!
 
@@ -288,14 +285,16 @@ _Borrow with confidence. Repay with ease._`,
       "Sent to the borrower's referral/referee when the loan is overdue.",
     body: `Dear {{referralName}},
 
-Your referral, *{{customerName}}*, has an outstanding loan with Lendo. The loan, amounting to TSh {{principal}}, was due to be fully repaid by {{dueDate}}. It is currently *{{daysOverdue}} day(s)* overdue, with a total of TSh {{totalDue}} still outstanding.
+Your referral, *{{customerName}}*, has a Lendo loan of TSh {{principal}}. Their payment for round {{round}} of {{roundsAgreed}} was due on {{dueDate}} and is now *{{daysOverdue}} day(s)* overdue.
+
+{{amountLines}}
 
 *How they can pay*
 • Bank: {{paymentBank}}
 • Account name: {{paymentAccountName}}
 • Account number: {{paymentAccountNumber}}
 
-Please kindly remind them to clear the outstanding amount as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
+Please kindly remind them to pay as soon as possible. If they are unable to pay immediately, please have them share when the payment will be made.
 
 Thank you for your cooperation and continued support.
 
@@ -361,6 +360,11 @@ export function renderMessage(
   body: string,
   values: Record<string, string | number | null | undefined>,
 ): string {
+  // A placeholder alone on its line with an explicitly empty value ("")
+  // removes the whole line (e.g. no "next payment" once a loan is repaid).
+  body = body.replace(/^[ \t]*\{\{\s*(\w+)\s*\}\}[ \t]*\n/gm, (line, key: string) =>
+    values[key] === "" ? "" : line,
+  );
   return body.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key: string) => {
     const v = values[key];
     if (v === undefined || v === null || v === "") return "—";
