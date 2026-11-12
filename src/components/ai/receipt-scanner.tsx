@@ -17,7 +17,6 @@ import { scanReceipt, type ScanResult } from "@/lib/actions/ai-actions";
 import type { ReceiptReading } from "@/lib/ai/receipt-ai";
 import { cn } from "@/lib/utils";
 import {
-  findCustomerHref,
   issueLoanHref,
   newCustomerHref,
   recordPaymentHref,
@@ -374,7 +373,10 @@ function ResultView({
   const rows: [string, string | null][] = [
     ["Amount", r.amount != null ? `${tsh(r.amount)}${r.currency && r.currency !== "TZS" ? ` (${r.currency})` : ""}` : null],
     ["Date", r.date ? `${r.date}${r.time ? `, ${r.time}` : ""}` : null],
-    [kind === "PAYMENT_RECEIVED" ? "Paid by" : "Sent to", r.counterpartyName],
+    [
+      kind === "PAYMENT_RECEIVED" ? "Paid by" : "Sent to",
+      r.counterpartyName ?? (r.counterpartyAccount ? "No name on the receipt — see account" : null),
+    ],
     ["Their account / phone", r.counterpartyAccount],
     ["Bank reference", r.reference],
     ["Description", r.description],
@@ -540,8 +542,102 @@ function LoanNext({ result }: { result: Ok }) {
   );
 }
 
+type LoanRowData = Ok["matches"][number]["openLoans"][number];
+
+/** One open loan with what it expects now, and a button to record the payment on it. */
+function LoanRow({ l, r, who }: { l: LoanRowData; r: ReceiptReading; who?: string }) {
+  return (
+    <li
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2",
+        l.bestFit ? "bg-emerald-50 ring-1 ring-emerald-200" : "bg-muted/50",
+      )}
+    >
+      <div className="min-w-0 text-sm">
+        {who ? <span className="font-medium">{who} · </span> : null}
+        <span className="font-mono text-xs font-medium">{l.ref}</span> · {tsh(l.principal)} given {l.givenOn}
+        {l.bestFit ? (
+          <span className="ml-1.5 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+            Best fit
+          </span>
+        ) : null}
+        {l.dueText ? <div className="text-xs text-muted-foreground">{l.dueText}</div> : null}
+        <div className="text-xs text-muted-foreground">
+          {l.isFinalRound ? (
+            <>Full balance due {tsh(l.settlement)}</>
+          ) : (
+            <>
+              Minimum {tsh(l.minimumDue)} · to clear {tsh(l.settlement)}
+            </>
+          )}
+          {l.hint ? (
+            <span className={cn("ml-1 font-medium", l.exactAmount ? "text-emerald-700" : "text-amber-700")}>
+              · {l.hint}
+            </span>
+          ) : null}
+        </div>
+        {l.bestFit ? <div className="text-xs text-emerald-800">Suggested because {l.bestFit}.</div> : null}
+      </div>
+      <Button asChild size="sm" variant={l.bestFit ? "default" : "outline"}>
+        <Link href={recordPaymentHref(prefill(r), l.loanId)}>
+          Review &amp; record <ArrowRight className="size-4" />
+        </Link>
+      </Button>
+    </li>
+  );
+}
+
+/** Every open loan, searchable — for when the receipt doesn't say who paid. */
+function LoanPicker({ result, open }: { result: Ok; open: boolean }) {
+  const r = result.reading;
+  const [q, setQ] = useState("");
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const list = result.choices.filter((c) => {
+    const hay = `${c.customerName} ${c.phone} ${c.ref}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+  const exact = result.choices.filter((c) => c.exactAmount).length;
+  return (
+    <details open={open} className="rounded-md border">
+      <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium">
+        Pick the loan myself{" "}
+        <span className="font-normal text-muted-foreground">
+          ({result.choices.length} open loan{result.choices.length === 1 ? "" : "s"}
+          {exact && r.amount ? `, ${exact} expecting exactly ${tsh(r.amount)}` : ""})
+        </span>
+      </summary>
+      <div className="space-y-2 border-t p-3">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search name, phone or loan ref…"
+          aria-label="Search open loans"
+          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+        />
+        {list.length ? (
+          <ul className="max-h-96 space-y-2 overflow-y-auto">
+            {list.slice(0, 60).map((c) => (
+              <LoanRow key={c.loanId} l={c} r={r} who={c.customerName} />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">No open loan matches that search.</p>
+        )}
+        {list.length > 60 ? (
+          <p className="text-xs text-muted-foreground">Showing 60 of {list.length} — search to narrow down.</p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">
+          Loans expecting exactly this amount are listed first, then by due date. The amount, date, reference
+          and the payer&apos;s account are carried over to the payment form.
+        </p>
+      </div>
+    </details>
+  );
+}
+
 function PaymentNext({ result }: { result: Ok }) {
   const r = result.reading;
+  const anyLoans = result.matches.some((m) => m.openLoans.length);
   return (
     <Card>
       <CardHeader>
@@ -554,48 +650,43 @@ function PaymentNext({ result }: { result: Ok }) {
               <li key={m.id} className="space-y-2 p-3">
                 <MatchHeader m={m} />
                 {m.openLoans.length ? (
-                  <ul className="space-y-2">
-                    {m.openLoans.map((l) => (
-                      <li
-                        key={l.loanId}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/50 px-3 py-2"
-                      >
-                        <div className="text-sm">
-                          <span className="font-mono text-xs font-medium">{l.ref}</span> · {tsh(l.principal)}{" "}
-                          given {l.givenOn}
-                          <div className="text-xs text-muted-foreground">
-                            Interest due {tsh(l.interestOnly)} · to clear {tsh(l.settlement)}
-                            {l.hint ? (
-                              <span className="ml-1 font-medium text-emerald-700">· {l.hint}</span>
-                            ) : null}
-                          </div>
-                        </div>
-                        <Button asChild size="sm">
-                          <Link href={recordPaymentHref(prefill(r), l.loanId)}>
-                            Review &amp; record <ArrowRight className="size-4" />
-                          </Link>
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    {m.openLoans.length > 1 ? (
+                      <p className="text-xs text-muted-foreground">
+                        {m.name} has {m.openLoans.length} open loans — check the suggested one, or pick another.
+                      </p>
+                    ) : null}
+                    <ul className="space-y-2">
+                      {m.openLoans.map((l) => (
+                        <LoanRow key={l.loanId} l={l} r={r} />
+                      ))}
+                    </ul>
+                  </>
                 ) : (
-                  <p className="text-xs text-muted-foreground">
-                    {m.name} has no open loans in Lendo.
-                  </p>
+                  <p className="text-xs text-muted-foreground">{m.name} has no open loans in Lendo.</p>
                 )}
               </li>
             ))}
           </ul>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No customer in Lendo matches &ldquo;{r.counterpartyName ?? "this name"}&rdquo;.
+            {r.counterpartyName ? (
+              <>No customer in Lendo matches &ldquo;{r.counterpartyName}&rdquo;.</>
+            ) : (
+              <>
+                The receipt doesn&apos;t say who paid
+                {r.counterpartyAccount ? (
+                  <>
+                    {" "}— only the account <span className="font-mono">{r.counterpartyAccount}</span>, which Lendo
+                    hasn&apos;t seen before
+                  </>
+                ) : null}
+                . Pick the loan below; Lendo will remember the account for next time.
+              </>
+            )}
           </p>
         )}
-        <Button asChild variant="outline" size="sm">
-          <Link href={findCustomerHref(r.counterpartyName)}>
-            Find the customer myself
-          </Link>
-        </Button>
+        <LoanPicker result={result} open={!anyLoans} />
       </CardContent>
     </Card>
   );

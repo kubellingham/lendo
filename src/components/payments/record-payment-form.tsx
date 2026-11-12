@@ -34,6 +34,8 @@ export function RecordPaymentForm({
     paidAt?: string;
     method?: "CASH" | "MPESA" | "BANK" | "OTHER";
     reference?: string;
+    /** Account / phone the money came from (remembered to recognise the payer next time). */
+    payerAccount?: string;
   };
   loanId: string;
   installments: InstallmentOption[];
@@ -61,6 +63,7 @@ export function RecordPaymentForm({
       method: prefill?.method ?? "CASH",
       reference: prefill?.reference ?? "",
       note: "",
+      payerAccount: prefill?.payerAccount ?? "",
     },
   });
 
@@ -79,6 +82,7 @@ export function RecordPaymentForm({
       method: "CASH",
       reference: "",
       note: "",
+      payerAccount: "",
     });
     // Drop any receipt values from the URL so the form starts clean.
     if (prefill) router.replace(`/loans/${loanId}`);
@@ -88,6 +92,13 @@ export function RecordPaymentForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <input type="hidden" {...register("loanId")} />
+      <input type="hidden" {...register("payerAccount")} />
+      {prefill?.payerAccount ? (
+        <p className="rounded-md bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+          Paid from account <span className="font-mono text-foreground">{prefill.payerAccount}</span>. Lendo
+          will remember it, so the next receipt from this account is matched to this customer automatically.
+        </p>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <Button

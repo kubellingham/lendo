@@ -42,6 +42,7 @@ export function recordPaymentHref(r: Prefill, loanId: string) {
     paidAt: r.date,
     method: r.method,
     reference: r.reference,
+    account: r.account,
     ai: 1,
   })}#record-payment`;
 }

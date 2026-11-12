@@ -113,6 +113,7 @@ export async function recordPayment(input: PaymentInput): Promise<PaymentResult>
         paidAt,
         method: d.method,
         reference: d.reference?.trim() || null,
+        payerAccount: d.payerAccount?.trim() || null,
         note: d.note?.trim() || null,
         recordedById: user.id,
       },

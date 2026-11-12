@@ -84,6 +84,14 @@ export const paymentSchema = z.object({
   method: z.nativeEnum(PaymentMethod),
   reference: optionalText,
   note: optionalText,
+  /** Payer's account / phone from a receipt read by Lendo AI (may be masked). */
+  payerAccount: z
+    .string()
+    .trim()
+    .max(40)
+    .regex(/^[0-9A-Za-z*•.+\- ]*$/, "Invalid account")
+    .optional()
+    .or(z.literal("")),
 });
 export type PaymentInput = z.infer<typeof paymentSchema>;
 

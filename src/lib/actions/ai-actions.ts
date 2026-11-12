@@ -8,12 +8,14 @@ import { AiError } from "@/lib/ai/client";
 import { readReceipt, type ReceiptReading } from "@/lib/ai/receipt-ai";
 import {
   loadCustomers,
+  loanChoices,
   loanRef,
   suggestCustomers,
   type CustomerSuggestion,
+  type LoanChoice,
 } from "@/lib/ai/suggest";
 
-export type { CustomerSuggestion, OpenLoanSuggestion } from "@/lib/ai/suggest";
+export type { CustomerSuggestion, OpenLoanSuggestion, LoanChoice } from "@/lib/ai/suggest";
 
 const MAX_IMAGE_CHARS = 4_000_000; // ~3 MB image once base64-encoded
 const IMAGE_DATA_URL = /^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/;
@@ -23,6 +25,8 @@ export type ScanResult =
       ok: true;
       reading: ReceiptReading;
       matches: CustomerSuggestion[];
+      /** Every open loan, best candidates first — for picking by hand. */
+      choices: LoanChoice[];
       /** Something with this bank reference is already in Lendo. */
       duplicate: { what: string; href: string } | null;
     }
@@ -54,8 +58,13 @@ export async function scanReceipt(imageDataUrl: string): Promise<ScanResult> {
   }
 
   // ---- Who is this? (top matches + their open loans)
-  const [matches] = await suggestCustomers(await loadCustomers(), [
-    { name: reading.counterpartyName, account: reading.counterpartyAccount, amount: reading.amount },
+  const [[matches], choices] = await Promise.all([
+    loadCustomers().then((customers) =>
+      suggestCustomers(customers, [
+        { name: reading.counterpartyName, account: reading.counterpartyAccount, amount: reading.amount },
+      ]),
+    ),
+    loanChoices(reading.amount),
   ]);
 
   // ---- Already recorded?
@@ -97,5 +106,5 @@ export async function scanReceipt(imageDataUrl: string): Promise<ScanResult> {
     },
   });
 
-  return { ok: true, reading, matches, duplicate };
+  return { ok: true, reading, matches, choices, duplicate };
 }

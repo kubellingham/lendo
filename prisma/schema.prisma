@@ -215,6 +215,9 @@ model Payment {
   paidAt        DateTime
   method        PaymentMethod @default(CASH)
   reference     String?
+  /// Account / phone the money came from, as printed on the receipt (may be
+  /// masked, e.g. "01524***2000"). Lets Lendo AI recognise the payer next time.
+  payerAccount  String?
   recordedById  String
   recordedBy    User          @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
   note          String?

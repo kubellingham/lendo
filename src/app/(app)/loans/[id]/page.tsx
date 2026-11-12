@@ -62,6 +62,7 @@ export default async function LoanDetailPage({
     paidAt?: string;
     method?: string;
     reference?: string;
+    account?: string;
     ai?: string;
   }>;
 }) {
@@ -75,6 +76,8 @@ export default async function LoanDetailPage({
           paidAt: sp.paidAt && /^\d{4}-\d{2}-\d{2}$/.test(sp.paidAt) ? sp.paidAt : undefined,
           method: (["CASH", "MPESA", "BANK", "OTHER"] as const).find((m) => m === sp.method),
           reference: sp.reference?.slice(0, 120) || undefined,
+          payerAccount:
+            sp.account && /^[0-9A-Za-z*•.+\- ]{4,40}$/.test(sp.account) ? sp.account.trim() : undefined,
         }
       : null;
   const demo = isDemo(user);
