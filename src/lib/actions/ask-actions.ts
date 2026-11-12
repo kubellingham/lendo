@@ -24,6 +24,8 @@ Rules:
 - When counting, count people and loans separately (one person can have several loans).
 - Amounts: "minimum_to_pay" / "overdue_now" is what must be paid by the due date (the round's interest; on the final round it is the whole balance). "to_clear_loan" / "owes_now" is the whole balance. Never call the whole balance "due" unless it's the final round.
 - Timing: use "days_until_due" (0 = today, 1 = tomorrow, negative = overdue) exactly; never work out days yourself.
+- Totals: never add up, subtract or multiply amounts yourself — use the totals the tools give. For interest / profit in a month (collected, expected, projected, "except X"), call interest_for_month (pass exclude_customers) and quote its numbers exactly. If a name to exclude wasn't found ("exclude_not_found"), say so.
+- Keep lists short: at most 12 lines. If there are more, give the total and the biggest items, and offer the rest.
 - Reply in the same language the user writes in (Kiswahili or English).
 - Be brief: give the direct answer first, then the key details. Money as "TSh 1,250,000". Dates like "9 Nov 2026". Use short bullet points for lists. No tables.`;
 }
@@ -51,10 +53,12 @@ export async function askLendo(history: AskTurn[]): Promise<AskResult> {
       const res = await aiChat({
         messages,
         tools: round < MAX_TOOL_ROUNDS ? LENDO_TOOLS : undefined,
-        maxTokens: 2000,
+        maxTokens: 4000,
         effort: "low",
       });
       if (!res.toolCalls.length) {
+        // Never show a reply that was cut off as if it were complete.
+        const cut = res.finishReason === "length";
         await audit({
           actorId: user.id,
           action: "ai.ask",
@@ -62,7 +66,14 @@ export async function askLendo(history: AskTurn[]): Promise<AskResult> {
           entityId: "ask",
           after: { question: question.content.slice(0, 500), lookups },
         });
-        return { ok: true, answer: res.content.trim() || "Sorry, I couldn't find an answer.", lookups };
+        const answer = res.content.trim() || "Sorry, I couldn't find an answer.";
+        return {
+          ok: true,
+          answer: cut
+            ? `${answer}…\n\n(This answer was cut short because it was too long. Ask for a shorter version, or for one part at a time.)`
+            : answer,
+          lookups,
+        };
       }
       messages.push({ role: "assistant", content: res.content || null, tool_calls: res.toolCalls });
       for (const call of res.toolCalls) {

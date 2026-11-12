@@ -5,6 +5,7 @@ import { toBusinessDate } from "@/lib/dates";
 import { upcomingForLoan } from "@/lib/referral";
 import { loanSituation } from "@/lib/loan-situation";
 import { attributeInterest, type LoanFull } from "@/lib/reporting";
+import { monthInterest } from "@/lib/ai/month-interest";
 import type { ToolDef } from "@/lib/ai/client";
 import type { LoanStatus } from "@/generated/prisma/enums";
 
@@ -87,6 +88,25 @@ export const LENDO_TOOLS: ToolDef[] = [
           to: { type: "string", description: "End date YYYY-MM-DD (inclusive)" },
         },
         required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "interest_for_month",
+      description:
+        "Exact interest (profit) for one calendar month, calculated by Lendo: interest already collected this month, interest still expected from rounds due this month (late vs not due yet), the projected month total if everyone pays the interest due, unpaid interest from earlier months, and last month's collected interest for comparison. Can leave out named customers. Use this for any 'interest/profit this month / projected / expected' question instead of adding numbers yourself.",
+      parameters: {
+        type: "object",
+        properties: {
+          month: { type: "string", description: "YYYY-MM (default: this month)" },
+          exclude_customers: {
+            type: "array",
+            items: { type: "string" },
+            description: "Customer names (or ids) to leave out, e.g. [\"Ansbert Rwamahe\"]",
+          },
+        },
       },
     },
   },
@@ -390,6 +410,19 @@ export async function runLendoTool(
           principal_returned: Math.round(received - profit),
           still_owed_today_all_loans: loans.reduce((s, l) => s + owesNow(l), 0),
         });
+      }
+
+      case "interest_for_month": {
+        const month =
+          typeof args.month === "string" && /^\d{4}-\d{2}$/.test(args.month) ? args.month : iso(today).slice(0, 7);
+        const exclude = Array.isArray(args.exclude_customers)
+          ? args.exclude_customers.filter((x): x is string => typeof x === "string").slice(0, 20)
+          : [];
+        const result = monthInterest(await data.all(), month, today, exclude);
+        const missing = exclude.filter(
+          (e) => !result.excluded_customers.some((n) => e.toLowerCase().split(/\s+/).every((w) => n.toLowerCase().includes(w))),
+        );
+        return JSON.stringify(missing.length ? { ...result, exclude_not_found: missing } : result);
       }
 
       case "top_debtors": {
