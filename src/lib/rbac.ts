@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { Role } from "@/generated/prisma/enums";
+import { ensureDailyRefresh } from "@/lib/daily-refresh";
 
 export type SessionUser = {
   id: string;
@@ -30,6 +31,8 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     select: { id: true, name: true, email: true, role: true, isActive: true },
   });
   if (!live || !live.isActive) return null;
+  // Scores and overdue statuses move with the calendar, not only with payments.
+  await ensureDailyRefresh();
   return {
     id: live.id,
     name: live.name,

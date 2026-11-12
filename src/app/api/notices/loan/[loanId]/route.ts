@@ -6,7 +6,8 @@ import { formatDate, formatDateTime } from "@/lib/dates";
 import { buildReceiptPdf, type ReceiptDoc, type ReceiptRow } from "@/lib/pdf/receipt";
 import { getPaymentDetails } from "@/lib/settings";
 import { upcomingForLoan, dueWhen } from "@/lib/referral";
-import { dueWhenText, loanSituation } from "@/lib/loan-situation";
+import { dueWhenText, loanSituation, minimumReason } from "@/lib/loan-situation";
+import { ensureDailyRefresh } from "@/lib/daily-refresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  await ensureDailyRefresh();
   if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
     return new NextResponse("Not available in demo mode", { status: 403 });
   }
@@ -82,13 +84,13 @@ export async function GET(
   const dueDateSource = sit.dueDate ?? loan.dueAt;
   const daysOverdue = sit.daysUntilDue != null && sit.daysUntilDue < 0 ? -sit.daysUntilDue : 0;
   const roundLabel = sit.round ? `Round ${sit.round} of ${loan.cyclesAllowed}${sit.isFinalRound ? " (final)" : ""}` : "—";
-  const amountRows: ReceiptRow[] = sit.isFinalRound
+  const amountRows: ReceiptRow[] = sit.fullBalanceDue
     ? [{ label: "Amount to pay (full balance)", value: tsh(sit.toClear), strong: true }]
     : [
-        { label: `Minimum to pay (round ${sit.round} interest)`, value: tsh(sit.minimumDue), strong: true },
+        { label: `Minimum to pay (${minimumReason(sit)})`, value: tsh(sit.minimumDue), strong: true },
         { label: "To clear the whole loan", value: tsh(sit.toClear) },
       ];
-  const amountHighlight = sit.isFinalRound
+  const amountHighlight = sit.fullBalanceDue
     ? { label: "Amount to pay (full balance)", value: tsh(sit.toClear) }
     : { label: "Minimum to pay", value: tsh(sit.minimumDue) };
 

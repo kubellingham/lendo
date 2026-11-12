@@ -43,7 +43,7 @@ export default async function CustomersPage({
     city: c.city,
     region: c.region,
     isFlagged: c.isFlagged,
-    activeLoans: c.loans.filter((l) => l.status === "ACTIVE").length,
+    activeLoans: c.loans.filter((l) => l.status === "ACTIVE" || l.status === "OVERDUE" || l.status === "DEFAULTED").length,
     riskScore: c.riskScore,
     riskBand: c.riskBand,
   }));

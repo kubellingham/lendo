@@ -76,7 +76,7 @@ const columns: ColumnDef<CustomerRow>[] = [
   },
   {
     accessorKey: "activeLoans",
-    header: "Active loans",
+    header: "Open loans",
     cell: ({ row }) => row.original.activeLoans,
   },
 ];

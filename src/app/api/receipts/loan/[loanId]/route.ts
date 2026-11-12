@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { buildReceiptPdf, type ReceiptRow } from "@/lib/pdf/receipt";
+import { ensureDailyRefresh } from "@/lib/daily-refresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  await ensureDailyRefresh();
   if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
     return new NextResponse("Not available in demo mode", { status: 403 });
   }

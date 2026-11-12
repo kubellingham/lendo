@@ -216,3 +216,62 @@ export function monthInterest(
     earlier_overdue_rounds: earlier,
   };
 }
+
+type Comparison = { last_month_collected: number; projected_this_month: number; difference: number };
+
+export type MonthInterestReport = MonthInterest & {
+  /** This month's projection against last month, worked out on the same basis. */
+  vs_last_month: { same_customers: Comparison; all_customers?: Comparison };
+  /** Present when customers were left out: who, and what that removed. */
+  exclusion?: {
+    left_out: string[];
+    projected_interest_left_out: number;
+    previous_month_collected_from_them: number;
+    /** Last month with everyone included — what the business actually earned. */
+    previous_month_collected_all_customers: number;
+    /** Names that look alike but were NOT left out (different people). */
+    similar_names_not_left_out: string[];
+    /** Names asked for that matched nobody. */
+    not_found: string[];
+  };
+};
+
+/**
+ * The month's interest with any exclusions spelled out, so nobody has to guess
+ * whether "except Ansbert" applied, or to whom.
+ */
+export function monthInterestReport(
+  loans: MonthLoan[],
+  month: string,
+  today: Date,
+  exclude: string[] = [],
+): MonthInterestReport {
+  const result = monthInterest(loans, month, today, exclude);
+  const compare = (r: MonthInterest): Comparison => ({
+    last_month_collected: r.previous_month_collected,
+    projected_this_month: r.projected_month_total,
+    difference: r.projected_month_total - r.previous_month_collected,
+  });
+  const asked = exclude.map((e) => e.trim()).filter(Boolean);
+  if (!asked.length) return { ...result, vs_last_month: { same_customers: compare(result) } };
+  const everyone = monthInterest(loans, month, today);
+  const left = new Set(result.excluded_customers);
+  const words = asked.flatMap((e) => e.toLowerCase().split(/\s+/)).filter((w) => w.length >= 3);
+  const similar = [...new Set(loans.map((l) => l.customer.fullName))].filter(
+    (n) => !left.has(n) && words.some((w) => n.toLowerCase().split(/\s+/).includes(w)),
+  );
+  return {
+    ...result,
+    vs_last_month: { same_customers: compare(result), all_customers: compare(everyone) },
+    exclusion: {
+      left_out: result.excluded_customers,
+      projected_interest_left_out: everyone.projected_month_total - result.projected_month_total,
+      previous_month_collected_from_them: everyone.previous_month_collected - result.previous_month_collected,
+      previous_month_collected_all_customers: everyone.previous_month_collected,
+      similar_names_not_left_out: similar,
+      not_found: asked.filter(
+        (e) => ![...left].some((n) => e.toLowerCase().split(/\s+/).every((w) => n.toLowerCase().includes(w))),
+      ),
+    },
+  };
+}

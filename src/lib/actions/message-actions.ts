@@ -17,14 +17,7 @@ import {
   dueWhen,
 } from "@/lib/referral";
 import { getPaymentDetails } from "@/lib/settings";
-import {
-  amountLines,
-  bestTemplateFor,
-  dueWhenText,
-  loanSituation,
-  situationSummary,
-  templateMismatch,
-} from "@/lib/loan-situation";
+import { amountLines, bestTemplateFor, dueWhenText, loanSituation, situationSummary, templateMismatch, minimumReason } from "@/lib/loan-situation";
 
 /** One loan the staff member can switch on/off in a referral message. */
 export type ReferralPick = {
@@ -283,9 +276,9 @@ export async function previewPaymentMessage(
       nextPaymentLine:
         after.settled || !after.dueDate
           ? ""
-          : after.isFinalRound
+          : after.fullBalanceDue
             ? `• Next payment: ${formatDate(after.dueDate)} — TSh ${tsh(after.toClear)} (final round, the full balance)`
-            : `• Next payment: ${formatDate(after.dueDate)} — at least TSh ${tsh(after.minimumDue)} (round ${after.round} interest)`,
+            : `• Next payment: ${formatDate(after.dueDate)} — at least TSh ${tsh(after.minimumDue)} (${minimumReason(after)})`,
       paidAt: formatPaidAt(payment.paidAt),
       remainingBalance: tsh(state.principalOutstanding),
       totalRepaid: tsh(state.totalCollected),

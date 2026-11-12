@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { computeLoanState, type LoanStateInput } from "@/lib/loan-calc";
 import { money, round2 } from "@/lib/money";
 import { formatDate, toBusinessDate } from "@/lib/dates";
-import { loanSituation } from "@/lib/loan-situation";
+import { loanSituation, roundsText } from "@/lib/loan-situation";
 
 export type ReferralLoanLine = {
   loanId: string;
@@ -15,6 +15,8 @@ export type ReferralLoanLine = {
   toClear: Decimal;
   round: number | null;
   isFinalRound: boolean;
+  /** Rounds past due with interest unpaid. */
+  overdueRounds: number[];
   dueDate: Date;
   daysOverdue: number;
 };
@@ -79,7 +81,8 @@ export async function getReferralOverdue(
       amountDue: round2(sit.minimumDue),
       toClear: round2(sit.toClear),
       round: sit.round,
-      isFinalRound: sit.isFinalRound,
+      isFinalRound: sit.fullBalanceDue,
+      overdueRounds: sit.overdueRounds,
       dueDate: sit.dueDate,
       daysOverdue: -sit.daysUntilDue,
     });
@@ -106,7 +109,7 @@ export function buildReferralMessage(
       const head = `${single ? "" : `${i + 1}. `}*${l.loanRef}* — was due ${formatDate(l.dueDate)}, *${l.daysOverdue} day(s) overdue*`;
       const detail = l.isFinalRound
         ? `   • Overdue: TSh ${num(l.amountDue)} (final round — the full balance)`
-        : `   • Overdue: TSh ${num(l.amountDue)} (interest for round ${l.round})\n   • To clear the loan: TSh ${num(l.toClear)}`;
+        : `   • Overdue: TSh ${num(l.amountDue)} (interest for ${roundsText(l.overdueRounds.length ? l.overdueRounds : [l.round ?? 1])})\n   • To clear the loan: TSh ${num(l.toClear)}`;
       return `${head}\n${detail}`;
     })
     .join("\n\n");

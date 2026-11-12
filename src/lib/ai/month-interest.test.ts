@@ -119,3 +119,32 @@ describe("parseMonth — however the month is written", () => {
     expect(parseMonth("2026-13", TODAY)).toBeNull();
   });
 });
+
+import { monthInterestReport } from "@/lib/ai/month-interest";
+
+describe("monthInterestReport — exclusions spelled out", () => {
+  const lookAlike = loan("Ansbert Test", 200000, "2026-10-21"); // a different Ansbert, due 20 Nov — 30,000
+  const ansbertOct = loan("Ansbert Rwamahe", 1000000, "2026-09-21", [[1, 150000, "2026-10-20"]]); // 150k in Oct, 150k due 20 Nov
+  const loans = [stephenFinal, elizabeth, ansbertOct, lookAlike];
+  it("says who was left out, how much, and keeps last month's full figure", () => {
+    const r = monthInterestReport(loans, "2026-11", TODAY, ["Ansbert Rwamahe"]);
+    expect(r.exclusion).toEqual({
+      left_out: ["Ansbert Rwamahe"],
+      projected_interest_left_out: 150000,
+      previous_month_collected_from_them: 150000,
+      previous_month_collected_all_customers: 30000 + 150000,
+      similar_names_not_left_out: ["Ansbert Test"],
+      not_found: [],
+    });
+    expect(r.projected_month_total).toBe(30000 + 450000 + 30000);
+    // Like-for-like comparisons, worked out in code.
+    expect(r.vs_last_month.same_customers).toEqual({ last_month_collected: 30000, projected_this_month: 510000, difference: 480000 });
+    expect(r.vs_last_month.all_customers).toEqual({ last_month_collected: 180000, projected_this_month: 660000, difference: 480000 });
+  });
+  it("reports a name that matched nobody", () => {
+    expect(monthInterestReport(loans, "2026-11", TODAY, ["Rehema"]).exclusion?.not_found).toEqual(["Rehema"]);
+  });
+  it("no exclusion block when nobody is excluded", () => {
+    expect(monthInterestReport(loans, "2026-11", TODAY).exclusion).toBeUndefined();
+  });
+});

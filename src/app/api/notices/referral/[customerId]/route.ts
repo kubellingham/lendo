@@ -12,6 +12,7 @@ import {
 } from "@/lib/referral";
 import { buildReceiptPdf, type ReceiptRow } from "@/lib/pdf/receipt";
 import { getPaymentDetails } from "@/lib/settings";
+import { ensureDailyRefresh } from "@/lib/daily-refresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,6 +23,7 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  await ensureDailyRefresh();
   if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
     return new NextResponse("Not available in demo mode", { status: 403 });
   }

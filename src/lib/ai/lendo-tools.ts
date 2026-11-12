@@ -5,7 +5,7 @@ import { toBusinessDate } from "@/lib/dates";
 import { upcomingForLoan } from "@/lib/referral";
 import { loanSituation } from "@/lib/loan-situation";
 import { attributeInterest, type LoanFull } from "@/lib/reporting";
-import { monthInterest, parseMonth } from "@/lib/ai/month-interest";
+import { monthInterestReport, parseMonth } from "@/lib/ai/month-interest";
 import type { ToolDef } from "@/lib/ai/client";
 import type { LoanStatus } from "@/generated/prisma/enums";
 
@@ -96,7 +96,7 @@ export const LENDO_TOOLS: ToolDef[] = [
     function: {
       name: "interest_for_month",
       description:
-        "Exact interest (profit) for one calendar month, calculated by Lendo: interest already collected this month, interest still expected from rounds due this month (late vs not due yet), the projected month total if everyone pays the interest due, unpaid interest from earlier months, and last month's collected interest for comparison. Can leave out named customers. Use this for any 'interest/profit this month / projected / expected' question instead of adding numbers yourself.",
+        "Exact interest (profit) for one calendar month, calculated by Lendo: interest already collected this month, interest still expected from rounds due this month (late vs not due yet), the projected month total if everyone pays the interest due, unpaid interest from earlier months, and last month's collected interest for comparison. Can leave out named customers; the exclusion field then says exactly who was left out, how much that removed, last month with everyone included, look-alike names that were NOT left out, and names not found. Use this for any 'interest/profit this month / projected / expected' question instead of adding numbers yourself.",
       parameters: {
         type: "object",
         properties: {
@@ -209,6 +209,8 @@ function nowFacts(l: FullLoan) {
   return {
     round: `${sit.round} of ${sit.roundsAgreed}`,
     final_round: sit.isFinalRound,
+    full_balance_due: sit.fullBalanceDue,
+    rounds_overdue: sit.overdueRounds,
     due: iso(sit.dueDate),
     days_until_due: sit.daysUntilDue,
     minimum_to_pay: n(sit.minimumDue),
@@ -373,6 +375,8 @@ export async function runLendoTool(
             loan: ref(l.id),
             round: `${sit.round} of ${sit.roundsAgreed}`,
             final_round: sit.isFinalRound,
+            full_balance_due: sit.fullBalanceDue,
+            rounds_overdue: sit.overdueRounds,
             days_late: late,
             overdue_now: n(sit.minimumDue),
             owes_now: owes,
@@ -418,11 +422,7 @@ export async function runLendoTool(
         const exclude = Array.isArray(args.exclude_customers)
           ? args.exclude_customers.filter((x): x is string => typeof x === "string").slice(0, 20)
           : [];
-        const result = monthInterest(await data.all(), month, today, exclude);
-        const missing = exclude.filter(
-          (e) => !result.excluded_customers.some((n) => e.toLowerCase().split(/\s+/).every((w) => n.toLowerCase().includes(w))),
-        );
-        return JSON.stringify(missing.length ? { ...result, exclude_not_found: missing } : result);
+        return JSON.stringify(monthInterestReport(await data.all(), month, today, exclude));
       }
 
       case "top_debtors": {

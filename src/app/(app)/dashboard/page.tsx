@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { money } from "@/lib/money";
 import { fmtMoney, isDemo } from "@/lib/demo-mode";
 import { aiConfigured } from "@/lib/ai/client";
-import { dueWhenText, loanSituation } from "@/lib/loan-situation";
+import { dueWhenText, loanSituation, roundsText } from "@/lib/loan-situation";
 import { MorningBriefing } from "@/components/ai/morning-briefing";
 import { formatDate, startOfTodayUtc, addBusinessDays } from "@/lib/dates";
 import { PageHeader } from "@/components/layout/page-header";
@@ -271,8 +271,11 @@ export default async function DashboardPage() {
                       <div className="min-w-0 flex-1">
                         <div className="font-medium">{loan.customer.fullName}</div>
                         <div className="text-xs text-muted-foreground">
-                          Round {sit.round}
-                          {sit.isFinalRound ? " (final)" : ""} · {-sit.daysUntilDue!} day(s) late · was due{" "}
+                          {sit.overdueRounds.length > 1
+                            ? `${roundsText(sit.overdueRounds).replace(/^r/, "R")} unpaid`
+                            : `Round ${sit.round}`}
+                          {sit.fullBalanceDue ? " (final — full balance)" : ""} · {-sit.daysUntilDue!} day(s) late ·
+                          was due{" "}
                           {formatDate(sit.dueDate!)}
                         </div>
                       </div>

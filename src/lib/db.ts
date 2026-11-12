@@ -8,12 +8,21 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
+/**
+ * node-postgres already treats sslmode=require/prefer/verify-ca as the strict
+ * "verify-full" and logs a warning on every cold start saying so. Spell it out
+ * so the behaviour stays exactly the same and the log stays clean.
+ */
+export function explicitSslMode(url: string): string {
+  return url.replace(/([?&]sslmode=)(require|prefer|verify-ca)(?=&|$)/, "$1verify-full");
+}
+
 function createClient() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL is not set");
   }
-  const adapter = new PrismaPg({ connectionString });
+  const adapter = new PrismaPg({ connectionString: explicitSslMode(connectionString) });
   return new PrismaClient({ adapter });
 }
 

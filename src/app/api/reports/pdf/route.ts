@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { buildReportData, type PeriodSpec, type PeriodType } from "@/lib/reporting";
 import { buildReportPdf } from "@/lib/pdf/report-pdf";
+import { ensureDailyRefresh } from "@/lib/daily-refresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  await ensureDailyRefresh();
   if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
     return new NextResponse("Not available in demo mode", { status: 403 });
   }

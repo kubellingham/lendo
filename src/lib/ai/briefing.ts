@@ -26,8 +26,19 @@ export async function briefingFacts() {
     run("business_totals", { from: monthStart, to: iso(today) }),
   ]);
   type Due = { in_days: number };
-  type Late = { customer: string; days_late: number; owes_now: number; overdue_now: number };
+  type Late = { customer: string; days_late: number; owes_now: number; overdue_now: number; rounds_overdue?: number[] };
   const lateList = Array.isArray(late) ? (late as Late[]) : [];
+  // Per-person totals, worked out here so the AI never adds numbers itself.
+  const byPerson = new Map<string, { customer: string; loans: number; most_days_late: number; rounds_unpaid: number; overdue_now: number; to_clear: number }>();
+  for (const l of lateList) {
+    const p = byPerson.get(l.customer) ?? { customer: l.customer, loans: 0, most_days_late: 0, rounds_unpaid: 0, overdue_now: 0, to_clear: 0 };
+    p.loans++;
+    p.most_days_late = Math.max(p.most_days_late, l.days_late);
+    p.rounds_unpaid += l.rounds_overdue?.length ?? 1;
+    p.overdue_now += l.overdue_now;
+    p.to_clear += l.owes_now;
+    byPerson.set(l.customer, p);
+  }
   return {
     today: formatDate(today, "EEEE d MMM yyyy"),
     due_today: (dueSoon as Due[]).filter((d) => d.in_days === 0),
@@ -37,7 +48,7 @@ export async function briefingFacts() {
       loans: lateList.length,
       total_overdue_now: lateList.reduce((s, l) => s + l.overdue_now, 0),
       total_to_clear: lateList.reduce((s, l) => s + l.owes_now, 0),
-      list: lateList.slice(0, 10),
+      by_person: [...byPerson.values()].sort((a, b) => b.most_days_late - a.most_days_late || b.overdue_now - a.overdue_now),
     },
     just_became_late: lateList.filter((l) => l.days_late <= 3),
     paid_yesterday: paidYesterday,
@@ -46,15 +57,22 @@ export async function briefingFacts() {
 }
 
 function prompt(lang: BriefingLang) {
+  const sw = lang === "sw";
   return `You write the morning briefing for the owner of Lendo, a small lending business in Tanzania. You get today's facts as JSON.
 
 Write 4 to 7 short bullet points, most urgent first:
-1. Who to chase today (late loans — longest late and biggest amounts first; mention anyone who just became late). For each: name, days late, and the amount overdue now ("overdue_now"); the whole balance ("owes_now") only as "to clear".
-2. Payments due today, then in the next 3 days (name, "minimum_due"; say "full balance" when final_round is true).
-3. Money received yesterday (total and who paid).
-4. This month so far: money received and profit (interest).
-Skip any point with nothing in it. Count people and loans separately (one person can have several loans). Use names and amounts exactly as in the facts — never invent or estimate. Money as "TSh 1,250,000".
-Write in ${lang === "sw" ? "simple, natural Kiswahili" : "simple English"}. Start every line with "• ". No heading, no closing remarks.`;
+1. One summary line for late payments, using late_now exactly: how many people and loans are late, and total_overdue_now.
+2. Who to chase today: one line per person from late_now.by_person (already in order, totals already added up); at most 4 people, then "and N more" for the rest. For each: name, most_days_late, overdue_now, and — if loans > 1 or rounds_unpaid > 1 — how many loans / unpaid rounds. Mention "to_clear" only as the amount to clear, and only if useful. Mention anyone in just_became_late.
+3. Payments due today, then in the next 3 days (name, "minimum_due"; say "full balance" when final_round is true).
+4. Money received yesterday (total and who paid).
+5. This month so far: money received and profit (interest).
+Skip any point with nothing in it — leave it out completely, never write "none" or "hakuna". Count people and loans separately (one person can have several loans). Use names and amounts exactly as in the facts — never invent, estimate or add numbers up yourself. Money as "TSh 1,250,000".
+${
+  sw
+    ? `Write in simple, natural Kiswahili as spoken in Tanzania — no English words. Use these terms: overdue now = "inadaiwa sasa"; days late = "amechelewa siku N"; to clear the loan = "kumaliza mkopo"; loan = "mkopo"; round = "raundi"; final round, full balance = "raundi ya mwisho — salio lote"; due tomorrow = "kesho"; profit = "faida (riba)".`
+    : "Write in simple English."
+}
+Start every line with "• ". No heading, no closing remarks.`;
 }
 
 export async function writeBriefing(lang: BriefingLang): Promise<string> {

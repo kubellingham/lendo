@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import Decimal from "decimal.js";
 import { generateSchedule } from "@/lib/schedule";
 import { parseIsoDate } from "@/lib/dates";
 import {
@@ -7,6 +8,8 @@ import {
   calendarDays,
   dueWhenText,
   loanSituation,
+  minimumReason,
+  roundsText,
   situationSummary,
   templateMismatch,
 } from "@/lib/loan-situation";
@@ -102,5 +105,65 @@ describe("loanSituation — timing matrix", () => {
 
   it("calendarDays ignores the time of day", () => {
     expect(calendarDays(new Date("2026-11-12T21:05:00Z"), parseIsoDate("2026-11-13"))).toBe(0);
+  });
+});
+
+
+/** A 1,000,000 loan (150,000 interest a round) with optional paid rounds. */
+function missed(disbursed: string, paidRounds: number[] = []) {
+  const s = generateSchedule({ principal: 1000000, disbursedAt: parseIsoDate(disbursed) });
+  const installments = s.installments.map((i) => ({
+    id: `r${i.cycleNumber}`,
+    cycleNumber: i.cycleNumber,
+    dueDate: i.dueDate,
+    expectedInterest: new Decimal(i.expectedInterest),
+    expectedPrincipalAtThisCycle: new Decimal(i.expectedPrincipalAtThisCycle),
+    status: "PENDING" as const,
+  }));
+  return {
+    principal: new Decimal(1000000),
+    status: "ACTIVE" as const,
+    interestRatePct: 15,
+    cyclesAllowed: 3,
+    dueAt: s.dueAt,
+    installments,
+    payments: paidRounds.map((r) => ({ amount: new Decimal(150000), installmentId: `r${r}` })),
+  };
+}
+
+describe("more than one round behind", () => {
+  const today = new Date("2026-11-12T09:00:00Z");
+  it("counts every missed round, not just the first (Ansbert: rounds due 25 Sep and 25 Oct)", () => {
+    const s = loanSituation(missed("2026-08-26"), today);
+    expect(s.overdueRounds).toEqual([1, 2]);
+    expect(Number(s.amountOverdue)).toBe(300000);
+    expect(Number(s.minimumDue)).toBe(300000);
+    expect(s.fullBalanceDue).toBe(false);
+    expect(minimumReason(s)).toBe("unpaid interest for rounds 1–2 of 3");
+    expect(amountLines(s)).toContain("*TSh 300,000* (unpaid interest for rounds 1–2 of 3)");
+  });
+  it("one missed round stays as before", () => {
+    const s = loanSituation(missed("2026-08-26", [1]), today);
+    expect(s.overdueRounds).toEqual([2]);
+    expect(Number(s.minimumDue)).toBe(150000);
+    expect(minimumReason(s)).toBe("interest for round 2 of 3");
+  });
+  it("after the final round has passed, the whole balance is overdue", () => {
+    const s = loanSituation(missed("2026-07-01"), today); // rounds due 31 Jul, 30 Aug, 29 Sep
+    expect(s.overdueRounds).toEqual([1, 2, 3]);
+    expect(s.fullBalanceDue).toBe(true);
+    expect(Number(s.minimumDue)).toBe(Number(s.toClear));
+    expect(amountLines(s)).toContain("the full balance must be paid");
+  });
+  it("nothing overdue on a loan that's up to date", () => {
+    const s = loanSituation(missed("2026-10-20"), today);
+    expect(s.overdueRounds).toEqual([]);
+    expect(Number(s.amountOverdue)).toBe(0);
+    expect(Number(s.minimumDue)).toBe(150000);
+  });
+  it("roundsText", () => {
+    expect(roundsText([2])).toBe("round 2");
+    expect(roundsText([1, 2, 3])).toBe("rounds 1–3");
+    expect(roundsText([1, 3])).toBe("rounds 1 and 3");
   });
 });

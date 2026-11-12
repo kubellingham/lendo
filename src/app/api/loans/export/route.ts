@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { computeLoanState } from "@/lib/loan-calc";
 import { parseIsoDate } from "@/lib/dates";
+import { ensureDailyRefresh } from "@/lib/daily-refresh";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ function csvEscape(s: string): string {
 export async function GET(req: Request) {
   const session = await auth();
   if (!session?.user) return new NextResponse("Unauthorized", { status: 401 });
+  await ensureDailyRefresh();
   if ((session.user as { role?: string }).role === "DEMO_VIEWER") {
     return new NextResponse("Not available in demo mode", { status: 403 });
   }
