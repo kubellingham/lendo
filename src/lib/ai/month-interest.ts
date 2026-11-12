@@ -47,6 +47,41 @@ const ref = (id: string) => "LND-" + id.slice(-6).toUpperCase();
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const r0 = (d: Decimal) => Math.round(d.toNumber());
 
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+// Kiswahili month names.
+const MONTHS_SW = ["januari", "februari", "machi", "aprili", "mei", "juni", "julai", "agosti", "septemba", "oktoba", "novemba", "desemba"];
+
+/**
+ * Understand a month however it is written: "2026-11", "2026-11-01",
+ * "November 2026", "Nov 2026", "Novemba 2026", "11/2026". Returns "YYYY-MM",
+ * or null when it can't tell (never silently picks another month).
+ */
+export function parseMonth(input: unknown, today: Date): string | null {
+  if (input == null || input === "") return today.toISOString().slice(0, 7);
+  if (typeof input !== "string") return null;
+  const t = input.trim().toLowerCase();
+  let m = /^(\d{4})-(\d{1,2})(?:-\d{1,2})?$/.exec(t);
+  if (m) return fmt(Number(m[1]), Number(m[2]));
+  m = /^(\d{1,2})[/.-](\d{4})$/.exec(t);
+  if (m) return fmt(Number(m[2]), Number(m[1]));
+  // "November 2026" / "Nov. 2026" / "2026 November"
+  const named = /^([a-z]+)\.?,?\s+(\d{4})$/.exec(t);
+  const yearFirst = /^(\d{4})\s+([a-z]+)$/.exec(t);
+  const name = named?.[1] ?? yearFirst?.[2];
+  const year = named?.[2] ?? yearFirst?.[1];
+  if (name && year) {
+    const sw = MONTHS_SW.indexOf(name);
+    const idx = sw >= 0 ? sw : MONTHS.findIndex((x) => name.startsWith(x));
+    if (idx >= 0) return fmt(Number(year), idx + 1);
+  }
+  return null;
+}
+
+function fmt(y: number, mo: number): string | null {
+  if (!(y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12)) return null;
+  return `${y}-${String(mo).padStart(2, "0")}`;
+}
+
 function monthBounds(month: string): [Date, Date] {
   const [y, m] = month.split("-").map(Number);
   return [new Date(Date.UTC(y, m - 1, 1)), new Date(Date.UTC(y, m, 1))];

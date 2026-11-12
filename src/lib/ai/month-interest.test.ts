@@ -98,3 +98,24 @@ describe("interest_for_month", () => {
     expect(r.projected_month_total).toBe(450000);
   });
 });
+
+import { parseMonth } from "@/lib/ai/month-interest";
+
+describe("parseMonth — however the month is written", () => {
+  it.each([
+    [undefined, "2026-11"],
+    ["2026-11", "2026-11"],
+    ["2026-10-01", "2026-10"],
+    ["November 2026", "2026-11"], // what Haiku actually sent
+    ["Oct 2026", "2026-10"],
+    ["Novemba 2026", "2026-11"],
+    ["2026 October", "2026-10"],
+    ["10/2026", "2026-10"],
+  ])("%s → %s", (input, out) => {
+    expect(parseMonth(input, TODAY)).toBe(out);
+  });
+  it("says it can't tell instead of guessing", () => {
+    expect(parseMonth("last month", TODAY)).toBeNull();
+    expect(parseMonth("2026-13", TODAY)).toBeNull();
+  });
+});

@@ -5,7 +5,7 @@ import { toBusinessDate } from "@/lib/dates";
 import { upcomingForLoan } from "@/lib/referral";
 import { loanSituation } from "@/lib/loan-situation";
 import { attributeInterest, type LoanFull } from "@/lib/reporting";
-import { monthInterest } from "@/lib/ai/month-interest";
+import { monthInterest, parseMonth } from "@/lib/ai/month-interest";
 import type { ToolDef } from "@/lib/ai/client";
 import type { LoanStatus } from "@/generated/prisma/enums";
 
@@ -413,8 +413,8 @@ export async function runLendoTool(
       }
 
       case "interest_for_month": {
-        const month =
-          typeof args.month === "string" && /^\d{4}-\d{2}$/.test(args.month) ? args.month : iso(today).slice(0, 7);
+        const month = parseMonth(args.month, today);
+        if (!month) return JSON.stringify({ error: `Couldn't tell which month "${String(args.month)}" is. Use YYYY-MM, e.g. 2026-10.` });
         const exclude = Array.isArray(args.exclude_customers)
           ? args.exclude_customers.filter((x): x is string => typeof x === "string").slice(0, 20)
           : [];

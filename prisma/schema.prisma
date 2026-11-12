@@ -93,6 +93,7 @@ model User {
   flagsCreated     CustomerFlag[] @relation("FlagCreatedBy")
   referralsCreated Referral[]     @relation("ReferralCreatedBy")
   auditLogs        AuditLog[]     @relation("AuditActor")
+  askChats         AskChat[]      @relation("AskChats")
 }
 
 // A reusable referral/referee contact — the person who vouches for a borrower.
@@ -114,21 +115,21 @@ model Referral {
 }
 
 model Customer {
-  id               String       @id @default(cuid())
-  type             CustomerType @default(INDIVIDUAL)
-  fullName         String
-  businessName     String?
-  nationalIdNumber String?
-  phone            String // E.164
-  altPhone         String?
-  email            String?
-  addressLine      String
-  city             String
-  region           String
-  occupation       String?
-  employer         String?
-  businessTin      String?
-  notes            String?
+  id                   String       @id @default(cuid())
+  type                 CustomerType @default(INDIVIDUAL)
+  fullName             String
+  businessName         String?
+  nationalIdNumber     String?
+  phone                String // E.164
+  altPhone             String?
+  email                String?
+  addressLine          String
+  city                 String
+  region               String
+  occupation           String?
+  employer             String?
+  businessTin          String?
+  notes                String?
   // Referral / referee who vouched for this borrower — messaged if the
   // borrower falls behind on repayment. Linked to a saved Referral contact;
   // the inline copies below are a fallback + kept in sync on save.
@@ -137,18 +138,18 @@ model Customer {
   referralName         String?
   referralPhone        String? // E.164
   referralRelationship String?
-  isFlagged        Boolean      @default(false)
-  flagReason       String?
+  isFlagged            Boolean      @default(false)
+  flagReason           String?
   // Rules-based risk meter (recomputed from repayment behaviour).
-  riskScore        Int          @default(100)
-  riskBand         RiskBand     @default(EXCELLENT)
-  riskWorstDaysLate Int         @default(0)
-  autoBlacklisted  Boolean      @default(false) // 90+ days / defaulted → blocks new loans
-  riskUpdatedAt    DateTime?
-  createdById      String
-  createdBy        User         @relation("CustomerCreatedBy", fields: [createdById], references: [id])
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  riskScore            Int          @default(100)
+  riskBand             RiskBand     @default(EXCELLENT)
+  riskWorstDaysLate    Int          @default(0)
+  autoBlacklisted      Boolean      @default(false) // 90+ days / defaulted → blocks new loans
+  riskUpdatedAt        DateTime?
+  createdById          String
+  createdBy            User         @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   loans         Loan[]
   flags         CustomerFlag[]
@@ -342,4 +343,36 @@ model TithePayment {
   submittedByName String
   note            String?
   submittedAt     DateTime @default(now())
+}
+
+/// A saved "Ask Lendo" conversation (one per staff member per topic).
+model AskChat {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation("AskChats", fields: [userId], references: [id], onDelete: Cascade)
+  /// The first question, shortened.
+  title     String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  messages  AskMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+/// One question or answer in an Ask Lendo chat, with when it was said.
+model AskMessage {
+  id        String   @id @default(cuid())
+  chatId    String
+  chat      AskChat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  /// "user" | "assistant"
+  role      String
+  content   String
+  /// The answer was an error message, not a real answer.
+  isError   Boolean  @default(false)
+  /// What Lendo AI looked up for this answer and the results exactly as they
+  /// were at that moment — so an old answer still shows the data it was based on.
+  snapshot  Json?
+  createdAt DateTime @default(now())
+
+  @@index([chatId, createdAt])
 }
