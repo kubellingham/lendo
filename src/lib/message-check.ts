@@ -174,7 +174,11 @@ export function checkMessage(message: string, facts: Fact[], staffNote = ""): Nu
               ? byAccount.get(n.key) ?? byNumber.get(numKey(n.text))
               : byNumber.get(n.key),
     );
-    if (label) out.push({ text: n.text, status: "ok", label });
+    // A small number the staff member wrote themselves ("reminded 2 times") is
+    // theirs — a matching record (2 payments) would only be a coincidence.
+    const smallFromNote = n.kind === "number" && Number(n.key) < 100 && noteKeys.has(id);
+    if (label && !smallFromNote) out.push({ text: n.text, status: "ok", label });
+    else if (smallFromNote) out.push({ text: n.text, status: "note", label: "from your note" });
     else if (noteKeys.has(id)) out.push({ text: n.text, status: "note", label: "from your note, but not in this loan's records" });
     else out.push({ text: n.text, status: "unknown" });
   }

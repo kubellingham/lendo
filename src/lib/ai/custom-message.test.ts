@@ -103,8 +103,15 @@ Maswali? Piga +255 786 776 677
   });
   it("marks numbers that came from the staff member's own note", () => {
     const checks = checkMessage("Please pay within 3 days, by 17 Nov 2026.", facts, "ask her to pay within 3 days, 17 Nov");
-    expect(checks.find((c) => c.text === "3")?.status).toBe("ok"); // 3 is also the round number
+    expect(checks.find((c) => c.text === "3")?.status).toBe("note"); // the staff member's "3 days", not round 3
     expect(checks.find((c) => c.text.startsWith("17 Nov"))?.status).toBe("unknown"); // dated note without year → different key
+  });
+  it("a small number from the staff note isn't matched to a record by coincidence", () => {
+    // Real Haiku output (firm, Kiswahili): "mara 2" = reminded twice, from the note — not "2 payments".
+    const checks = checkMessage("Tumekutumia ujumbe mara 2 bila jibu.", facts, "tumemkumbusha mara 2 hajajibu");
+    expect(checks).toEqual([{ text: "2", status: "note", label: "from your note" }]);
+    // Without the note, 2 still matches the records.
+    expect(checkMessage("Umefanya malipo 2.", facts)[0].status).toBe("ok");
   });
   it("knows a round number by the word before it", () => {
     const checks = checkMessage("Riba ya raundi ya 2 imelipwa; round 3 ni ya mwisho; raundi ya 5 haipo.", facts);

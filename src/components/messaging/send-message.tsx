@@ -807,7 +807,7 @@ function CheckRow({ c }: { c: ReturnType<typeof checkMessage>[number] }) {
         {c.status === "unknown"
           ? "not in Lendo's records for this loan"
           : c.status === "note"
-            ? "from your note, but not in this loan's records"
+            ? (c.label ?? "from your note, but not in this loan's records")
             : c.label}
       </span>
     </li>
