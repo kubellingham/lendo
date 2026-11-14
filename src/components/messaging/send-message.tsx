@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   MessageCircle,
   Copy,
@@ -10,8 +10,15 @@ import {
   Sparkles,
   Undo2,
   Loader2,
+  PenLine,
+  CircleCheck,
+  CircleAlert,
+  Info,
 } from "lucide-react";
 import { rewriteMessage } from "@/lib/actions/rewrite-actions";
+import { composeCustomMessage, customMessageFacts } from "@/lib/actions/custom-message-actions";
+import type { CustomTone } from "@/lib/ai/custom-message";
+import { checkMessage, type Fact } from "@/lib/message-check";
 import type { Language, Tone } from "@/lib/ai/rewrite";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -47,6 +54,9 @@ const CATEGORY_BY_KIND: Record<Context["kind"], MessageCategory[]> = {
   customer: ["customer", "referral_all", "referral_upcoming_all"],
 };
 
+/** "Write my own" — staff's own words, written up by Lendo AI from the loan's records. */
+const CUSTOM_KEY = "custom_ai";
+
 function waLink(phoneE164: string, text: string): string {
   const digits = phoneE164.replace(/[^\d]/g, "");
   return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
@@ -77,6 +87,7 @@ function pdfHref(
   loanIds?: string[],
 ): string | null {
   const loansQs = loanIds ? `loans=${encodeURIComponent(loanIds.join(","))}` : "";
+  if (key === CUSTOM_KEY) return null;
   if (context.kind === "payment") {
     return `/api/receipts/payment/${context.paymentId}`;
   }
@@ -155,6 +166,36 @@ export function SendMessage({
     problems: string[];
   } | null>(null);
   const [rewriting, startRewrite] = useTransition();
+  // "Write my own"
+  const canCustom = context.kind === "loan" || context.kind === "payment";
+  const isCustom = key === CUSTOM_KEY;
+  const [facts, setFacts] = useState<Fact[] | null>(null);
+  const [note, setNote] = useState("");
+  const [customTone, setCustomTone] = useState<CustomTone>("warm");
+  const [staffNotes, setStaffNotes] = useState<string[]>([]);
+  const [composing, startCompose] = useTransition();
+  // Every number in the message, checked against the records — live as staff edit.
+  const checks = useMemo(
+    () => (isCustom && facts && message.trim() ? checkMessage(message, facts, note) : null),
+    [isCustom, facts, message, note],
+  );
+  // Anything not in the records needs a look — even a number from staff's own note.
+  const unknown = checks?.filter((c) => c.status !== "ok") ?? [];
+
+  function compose() {
+    if (context.kind === "customer" || !note.trim()) return;
+    setError(null);
+    const ctx = context;
+    startCompose(async () => {
+      const res = await composeCustomMessage({ context: ctx, note, tone: customTone, language: lang });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setMessage(res.message);
+      setStaffNotes(res.staffNotes);
+    });
+  }
 
   function rewrite() {
     if (!message.trim()) return;
@@ -230,6 +271,27 @@ export function SendMessage({
     setKey(templateKey);
     setPicks(null);
     setSelected([]);
+    if (templateKey === CUSTOM_KEY) {
+      if (context.kind === "customer") return;
+      const ctx = context;
+      setMessage("");
+      setStaffNotes([]);
+      setMismatch(null);
+      setBeforeRewrite(null);
+      setRewriteNote(null);
+      startTransition(async () => {
+        const res = await customMessageFacts(ctx);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setFacts(res.facts);
+        setPhone(res.phoneE164);
+        setRecipient(res.customerName);
+        setSituation(res.facts.find((f) => f.label === "Situation summary")?.value ?? null);
+      });
+      return;
+    }
     startTransition(async () => {
       let res;
       if (context.kind === "loan") {
@@ -339,9 +401,12 @@ export function SendMessage({
                   {t.label}
                 </option>
               ))}
+              {canCustom ? <option value={CUSTOM_KEY}>✍️ Write my own (Lendo AI)</option> : null}
             </Select>
             <p className="text-xs text-muted-foreground">
-              {available.find((t) => t.key === key)?.description}
+              {isCustom
+                ? "Say what you want in your own words — Lendo AI writes it properly from this loan's records and checks every number."
+                : available.find((t) => t.key === key)?.description}
             </p>
           </div>
 
@@ -456,6 +521,79 @@ export function SendMessage({
             </div>
           ) : null}
 
+          {isCustom ? (
+            <div className="space-y-2 rounded-md border border-violet-200 bg-violet-50/60 p-3">
+              <Label htmlFor="custom-note" className="flex items-center gap-1.5">
+                <PenLine className="size-4 text-violet-700" /> What do you want to tell them?
+              </Label>
+              <Textarea
+                id="custom-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={4}
+                maxLength={2000}
+                placeholder="In your own words, English or Kiswahili. e.g. She paid a big amount thinking it cleared the loan, but part of it went to interest. Explain how her payments were used, what's left and when it's due."
+                className="bg-background text-sm"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={lang}
+                  onChange={(e) => setLang(e.target.value as Language)}
+                  className="h-8 w-auto py-0 text-xs"
+                  aria-label="Language"
+                >
+                  <option value="sw">Kiswahili</option>
+                  <option value="en">English</option>
+                </Select>
+                <Select
+                  value={customTone}
+                  onChange={(e) => setCustomTone(e.target.value as CustomTone)}
+                  className="h-8 w-auto py-0 text-xs"
+                  aria-label="Tone"
+                >
+                  <option value="warm">Tone: Warm</option>
+                  <option value="formal">Tone: Formal</option>
+                  <option value="firm">Tone: Firm</option>
+                </Select>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={compose}
+                  disabled={note.trim().length < 3 || composing || pending || !facts}
+                >
+                  {composing ? <Loader2 className="size-3.5 animate-spin" /> : <Sparkles className="size-3.5" />}
+                  {message ? "Write it again" : "Write it with Lendo AI"}
+                </Button>
+              </div>
+              {facts ? (
+                <details className="text-xs">
+                  <summary className="cursor-pointer select-none text-violet-800">
+                    What Lendo knows about this loan (the only figures Lendo AI may use)
+                  </summary>
+                  <div className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                    {[...new Set(facts.map((f) => f.group ?? ""))]
+                      .filter((g) => g !== "Today")
+                      .map((g) => (
+                        <div key={g}>
+                          <p className="font-medium text-foreground">{g}</p>
+                          <ul className="text-muted-foreground">
+                            {facts
+                              .filter((f) => (f.group ?? "") === g)
+                              .map((f) => (
+                                <li key={f.label}>
+                                  {f.label.replace(/^(Payment|Round) \d+:? ?/, "")}:{" "}
+                                  <span className="text-foreground">{f.value}</span>
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      ))}
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label>Message (edit if needed)</Label>
@@ -468,8 +606,13 @@ export function SendMessage({
               onChange={(e) => setMessage(e.target.value)}
               rows={16}
               className="font-mono text-sm"
-              placeholder={pending ? "Loading…" : ""}
+              placeholder={
+                pending ? "Loading…" : isCustom ? "Your message will appear here — you can edit it before sending." : ""
+              }
             />
+            {isCustom ? (
+              <CustomChecks checks={checks} unknownCount={unknown.length} staffNotes={staffNotes} />
+            ) : (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-violet-200 bg-violet-50/60 px-2 py-1.5">
               <Sparkles className="size-4 text-violet-700" />
               <Select
@@ -508,7 +651,8 @@ export function SendMessage({
                 </Button>
               ) : null}
             </div>
-            {rewriteNote ? (
+            )}
+            {rewriteNote && !isCustom ? (
               rewriteNote.problems.length ? (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
                   <p className="font-medium">Check before sending — the rewrite changed some details:</p>
@@ -578,5 +722,94 @@ export function SendMessage({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** Every number in the message, and whether it matches the loan's records. */
+function CustomChecks({
+  checks,
+  unknownCount,
+  staffNotes,
+}: {
+  checks: ReturnType<typeof checkMessage> | null;
+  unknownCount: number;
+  staffNotes: string[];
+}) {
+  if (!checks) return null;
+  return (
+    <div
+      className={cn(
+        "space-y-1.5 rounded-md border px-3 py-2 text-xs",
+        unknownCount ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900",
+      )}
+    >
+      <p className="font-medium">
+        {checks.length === 0
+          ? "No amounts or dates in the message."
+          : unknownCount
+            ? `${unknownCount} of ${checks.length} number${checks.length === 1 ? "" : "s"} ${unknownCount === 1 ? "isn't" : "aren't"} in this loan's records — check before sending:`
+            : `All ${checks.length} amounts, dates and references match this loan's records.`}
+      </p>
+      {checks.length ? (
+        <>
+          {checks.some((c) => c.status !== "ok") ? (
+            <ul className="space-y-0.5">
+              {checks
+                .filter((c) => c.status !== "ok")
+                .map((c) => (
+                  <CheckRow key={`${c.status}-${c.text}`} c={c} />
+                ))}
+            </ul>
+          ) : null}
+          {checks.some((c) => c.status === "ok") ? (
+            <details>
+              <summary className="cursor-pointer select-none">
+                {checks.filter((c) => c.status === "ok").length} match the records — show which
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {checks
+                  .filter((c) => c.status === "ok")
+                  .map((c) => (
+                    <CheckRow key={`${c.status}-${c.text}`} c={c} />
+                  ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
+      ) : null}
+      {staffNotes.length ? (
+        <div className="border-t border-current/10 pt-1.5 text-foreground">
+          <p className="font-medium">Lendo AI&apos;s notes for you:</p>
+          <ul className="list-disc pl-4">
+            {staffNotes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function CheckRow({ c }: { c: ReturnType<typeof checkMessage>[number] }) {
+  return (
+    <li className="flex items-start gap-1.5">
+      {c.status === "ok" ? (
+        <CircleCheck className="mt-0.5 size-3.5 shrink-0 text-emerald-600" />
+      ) : c.status === "note" ? (
+        <Info className="mt-0.5 size-3.5 shrink-0 text-sky-600" />
+      ) : (
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+      )}
+      <span>
+        <span className="font-mono font-medium">{c.text}</span>
+        {" — "}
+        {c.status === "unknown"
+          ? "not in Lendo's records for this loan"
+          : c.status === "note"
+            ? "from your note, but not in this loan's records"
+            : c.label}
+      </span>
+    </li>
   );
 }

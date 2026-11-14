@@ -108,8 +108,16 @@ export function loanRef(id: string): string {
   return "LND-" + id.slice(-6).toUpperCase();
 }
 
+/** What attributeInterest needs from a loan (a full report row also fits). */
+export type InterestInput = {
+  principal: LoanFull["principal"];
+  interestRatePct: number;
+  installments: LoanFull["installments"];
+  payments: Pick<LoanFull["payments"][number], "id" | "amount" | "installmentId" | "paidAt" | "createdAt">[];
+};
+
 /** Interest portion of each payment (interest is covered before principal). */
-export function attributeInterest(loan: LoanFull): Map<string, Decimal> {
+export function attributeInterest(loan: InterestInput): Map<string, Decimal> {
   const state = computeLoanState({
     principal: loan.principal,
     status: "ACTIVE",
@@ -121,7 +129,7 @@ export function attributeInterest(loan: LoanFull): Map<string, Decimal> {
     })),
   });
   const out = new Map<string, Decimal>();
-  const byInst = new Map<string, LoanFull["payments"]>();
+  const byInst = new Map<string, InterestInput["payments"]>();
   for (const p of loan.payments) {
     const key = p.installmentId ?? "__none__";
     (byInst.get(key) ?? byInst.set(key, []).get(key)!).push(p);
