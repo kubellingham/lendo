@@ -21,7 +21,7 @@ const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.paymentAccountNumber]: "10327855568",
   [SETTING_KEYS.brandName]: "Lendo",
   [SETTING_KEYS.brandTagline]: "Borrow with confidence. Repay with ease.",
-  [SETTING_KEYS.brandPhone]: "+255 786 776 677",
+  [SETTING_KEYS.brandPhone]: "+255 768 776 677",
   [SETTING_KEYS.brandEmail]: "ikube77@gmail.com",
   [SETTING_KEYS.brandTown]: "Dodoma, Tanzania",
   [SETTING_KEYS.brandLogo]: "",

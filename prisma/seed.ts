@@ -70,6 +70,14 @@ async function main() {
     update: {},
     create: { key: "payment_account_number", value: "10327855568" },
   });
+  // One-time correction: the business phone was first set up as
+  // +255 786 776 677; the right number is 0768 776 677. Only that exact
+  // wrong value is replaced — any number typed in Settings is left alone.
+  const fixedPhone = await db.setting.updateMany({
+    where: { key: "brand_phone", value: "+255 786 776 677" },
+    data: { value: "+255 768 776 677" },
+  });
+  if (fixedPhone.count) console.log("✔ Business phone corrected to +255 768 776 677");
   console.log("✔ Default settings ready");
 
   // Backfill saved Referral contacts from any inline referral data on
@@ -101,6 +109,11 @@ async function main() {
     linked++;
   }
   if (linked > 0) console.log(`✔ Linked ${linked} customer(s) to saved referrals`);
+
+  // A new deploy can change how statuses and scores are worked out: make the
+  // first request after it run the full daily refresh (loan statuses + scores)
+  // again, even if today's refresh already ran on the old version.
+  await db.setting.deleteMany({ where: { key: "daily_refresh_day" } });
 
   // Recompute the risk meter for everyone so scores are correct after deploy.
   try {

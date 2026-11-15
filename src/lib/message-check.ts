@@ -64,7 +64,20 @@ type Found = {
   key: string;
   /** Set for "round 2" / "raundi ya 2" / "awamu ya 2". */
   isRound?: boolean;
+  /** Set for "payment 2" / "malipo 2" / "payment #2". */
+  isPayment?: boolean;
+  /** The amount is called a balance ("salio TSh X", "balance of TSh X"). */
+  isBalance?: boolean;
 };
+
+const PAYMENT_BEFORE = /(?:\bpayment|\bmalipo)(?:\s+(?:ya|no\.?|number))?\s*#?\s*$/i;
+
+// "salio TSh 700,000", "Salio lako lililobaki ni TSh 29,250", "remaining balance is *TSh 195,000*"
+// — but not when interest is named in between ("salio … na riba ya raundi ya 3 ni TSh 29,250").
+const BALANCE_BEFORE =
+  /(?:\bsalio|\bbalance|lililobaki|kilichobaki|\bremaining|\bleft to pay|\bstill owe[sd]?)\b(?:(?!riba|interest)[^.,;\n•:]){0,28}:?\s*(?:TSh\.?\s*)?$/i;
+// Facts that really are "what is owed": calling these a balance is right.
+const BALANCE_FACT = /balance still owed|balance left after|opening loan balance|clear the whole loan|overdue now|minimum to pay/i;
 
 const ROUND_BEFORE = /(?:\brounds?|\braundi|\bawamu|\bmzunguko)(?:\s+(?:ya|wa|no\.?|number))?\s*$/i;
 
@@ -111,8 +124,16 @@ export function extractNumbers(text: string): Found[] {
   for (const m of rest.matchAll(/\d[\d,]*(?:\.\d+)?/g)) {
     const raw = m[0].replace(/[,.]$/, "");
     const key = numKey(raw.split(".")[0]);
-    const before = rest.slice(Math.max(0, (m.index ?? 0) - 20), m.index);
-    if (key) found.push({ text: raw, kind: "number", key, ...(ROUND_BEFORE.test(before) ? { isRound: true } : {}) });
+    const before = rest.slice(Math.max(0, (m.index ?? 0) - 50), m.index);
+    if (key)
+      found.push({
+        text: raw,
+        kind: "number",
+        key,
+        ...(Number(key) <= 50 && ROUND_BEFORE.test(before.slice(-20)) ? { isRound: true } : {}),
+        ...(Number(key) <= 50 && PAYMENT_BEFORE.test(before.slice(-20)) ? { isPayment: true } : {}),
+        ...(BALANCE_BEFORE.test(before) ? { isBalance: true } : {}),
+      });
   }
   return found;
 }
@@ -147,14 +168,25 @@ export function checkMessage(message: string, facts: Fact[], staffNote = ""): Nu
   const rounds = new Set(
     facts.flatMap((f) => [...f.label.matchAll(/\bRound (\d+)\b/g)].map((m) => m[1])),
   );
+  const payments = new Set(
+    facts.flatMap((f) => [...f.label.matchAll(/\bPayment (\d+)\b/g)].map((m) => m[1])),
+  );
   const noteKeys = new Set(extractNumbers(staffNote).map((n) => `${n.kind}:${n.key}`));
 
   const out: NumberCheck[] = [];
   const seen = new Set<string>();
   for (const n of extractNumbers(message)) {
-    const id = `${n.kind}:${n.key}${n.isRound ? ":round" : ""}`;
+    const id = `${n.kind}:${n.key}${n.isRound ? ":round" : ""}${n.isPayment ? ":payment" : ""}${n.isBalance ? ":balance" : ""}`;
     if (seen.has(id)) continue;
     seen.add(id);
+    if (n.isPayment) {
+      out.push(
+        payments.has(n.key)
+          ? { text: n.text, status: "ok", label: `Payment ${n.key} of this loan` }
+          : { text: `payment ${n.text}`, status: "unknown" },
+      );
+      continue;
+    }
     if (n.isRound) {
       out.push(
         rounds.has(n.key)
@@ -176,6 +208,18 @@ export function checkMessage(message: string, facts: Fact[], staffNote = ""): Nu
     );
     // A small number the staff member wrote themselves ("reminded 2 times") is
     // theirs — a matching record (2 payments) would only be a coincidence.
+    // Right number, wrong name: called a balance ("salio") but it isn't what is owed.
+    if (n.isBalance && n.kind === "number") {
+      const all = byNumber.get(n.key) ?? [];
+      if (all.length && !all.some((l) => BALANCE_FACT.test(l))) {
+        out.push({
+          text: n.text,
+          status: "unknown",
+          label: `called a balance ("salio") here, but it is the ${all[0].replace(/^Payment \d+: /, "").replace(/^part/, "part of a payment")} — not what is still owed`,
+        });
+        continue;
+      }
+    }
     const smallFromNote = n.kind === "number" && Number(n.key) < 100 && noteKeys.has(id);
     if (label && !smallFromNote) out.push({ text: n.text, status: "ok", label });
     else if (smallFromNote) out.push({ text: n.text, status: "note", label: "from your note" });

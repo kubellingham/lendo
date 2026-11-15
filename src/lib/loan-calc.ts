@@ -98,6 +98,14 @@ export function deriveStatuses(
           : paid.gte(interestOwed)
             ? "INTEREST_PAID"
             : "SETTLED";
+    } else if (
+      interestOwed.gt(0) &&
+      paid.gt(interestOwed.plus(0.5)) &&
+      inst.cycleNumber >= (loan.cyclesAllowed ?? loan.installments.length)
+    ) {
+      // Final (or extra) round: interest AND part of the balance paid — the
+      // borrower is clearing the loan; the rest is still owed by the due date.
+      status = past(inst.dueDate) ? "OVERDUE" : "PENDING";
     } else if (interestOwed.gt(0) && paid.gte(interestOwed)) {
       status = "INTEREST_PAID";
     } else if (interestOwed.eq(0)) {
@@ -111,22 +119,22 @@ export function deriveStatuses(
     installmentStatuses[inst.id] = status;
   }
 
-  // The final allowed cycle of the original term (default 3). On this cycle the
-  // borrower is expected to settle in full — the principal was due.
-  const finalCycle = loan.cyclesAllowed ?? loan.installments.length;
-
   let loanStatus: LoanStatus;
   if (settled) {
     loanStatus = "SETTLED";
   } else if (past(loanDueAt)) {
+    // The final due date has passed without the loan being cleared.
     loanStatus = "DEFAULTED";
   } else if (
-    // Reached the final (or an extended) cycle and only paid its interest
-    // without clearing the principal — the term is used up, so this is a
-    // default even before the calendar due date passes.
+    // Business rule: on the final (or an extended) round the loan must be
+    // cleared. Paying ONLY that round's interest — rolling instead of
+    // returning the loan — uses up the term, so it's a default straight away.
+    // (Interest plus part of the balance is not rolling: the borrower is
+    // clearing the loan and has until the final due date — that round stays
+    // PENDING above, not INTEREST_PAID.)
     loan.installments.some(
       (inst) =>
-        inst.cycleNumber >= finalCycle &&
+        inst.cycleNumber >= (loan.cyclesAllowed ?? loan.installments.length) &&
         installmentStatuses[inst.id] === "INTEREST_PAID",
     )
   ) {
@@ -203,13 +211,16 @@ export function computeLoanState(loan: LoanStateInput): LoanState {
 
   // Current cycle = earliest cycle whose interest isn't yet fully paid and
   // whose interest owed is > 0 (i.e. principal wasn't already zero going in).
+  // If every round's interest is paid but the loan isn't cleared (e.g. the
+  // final round's interest plus part of the balance), the last round is still
+  // current: the rest of the balance is owed on it.
   const currentInst = isSettled
     ? undefined
-    : sortedInstallments.find((i) => {
+    : (sortedInstallments.find((i) => {
         const owed = perInstallmentInterestOwed[i.id];
         const paid = perInstallmentPaid[i.id] ?? new Decimal(0);
         return owed.gt(0) && paid.lt(owed);
-      });
+      }) ?? sortedInstallments[sortedInstallments.length - 1]);
   const currentCycle = currentInst?.cycleNumber ?? null;
 
   const interestOwedThisCycle = currentInst

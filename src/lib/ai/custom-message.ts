@@ -106,6 +106,7 @@ export function buildLoanFacts(
     (a, b) => a.paidAt.getTime() - b.paidAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
   );
   let interestPaid = new Decimal(0);
+  let balance = new Decimal(loan.principal.toString());
   ordered.forEach((p, k) => {
     const g = `Payment ${k + 1}`;
     const interest = interestByPayment.get(p.id) ?? new Decimal(0);
@@ -115,7 +116,9 @@ export function buildLoanFacts(
     date(g, `Payment ${k + 1} date`, p.paidAt);
     money(g, `Payment ${k + 1} amount`, new Decimal(p.amount.toString()));
     money(g, `Payment ${k + 1}: part that paid interest${round ? ` (round ${round})` : ""}`, interest);
-    money(g, `Payment ${k + 1}: part that reduced the loan balance`, principalPart);
+    money(g, `Payment ${k + 1}: part that went to the loan itself (reduced the balance)`, principalPart);
+    balance = Decimal.max(0, balance.minus(principalPart));
+    money(g, `Payment ${k + 1}: loan balance left after this payment`, balance);
     add(g, `Payment ${k + 1} method`, "text", METHOD[p.method] ?? p.method, p.method);
   });
   if (ordered.length) {
@@ -173,7 +176,7 @@ ${factsText(input.facts)}
 
 Write the message in ${
     sw
-      ? `natural, everyday Kiswahili as spoken in Tanzania (interest = "riba"; loan balance = "salio la mkopo"; round = "raundi"; to clear the loan = "kumaliza mkopo"; due date = "tarehe ya mwisho ya kulipa"; tomorrow = "kesho"; today = "leo")`
+      ? `natural, everyday Kiswahili as spoken in Tanzania (interest = "riba"; loan balance still owed = "salio la mkopo"; the part of a payment that went to the loan itself = "kilichopunguza mkopo" — NEVER call that part "salio"; round = "raundi"; to clear the loan = "kumaliza mkopo"; due date = "tarehe ya mwisho ya kulipa"; tomorrow = "kesho"; today = "leo")`
       : "simple, clear English"
   }. Tone: ${TONE[input.tone]}. Address ${first} by first name.
 
@@ -182,7 +185,8 @@ Rules:
 - Every amount, date, round number and reference you write must come from the records above, written exactly as there. Never invent, estimate or round a number. Do not add up or subtract numbers yourself — if a total is needed, use one from the records.
 - Never add fees, penalties, deadlines, legal threats or promises that are not in the records or the note.
 - If the note's numbers or dates disagree with the records, use the records and mention it in staff_notes.
-- When explaining payments, be concrete: which payment (date and amount), how much of it paid interest, how much reduced the loan balance, what is still owed and by when.
+- When explaining payments, be concrete: which payment (date and amount), how much of it paid interest, how much went to the loan itself, and the loan balance left after it ("loan balance left after this payment"), then what is still owed and by when.
+- "Balance" / "salio" means ONLY what is still owed. Never use it for the part of a payment that reduced the loan — that would make the borrower think they owe that amount.
 - When asking for a payment, end with the payment details (bank, account name, account number) as a short separate block.
 - WhatsApp style: *bold* with single asterisks, short lines, bullet points with •. Keep it short — about 12 lines plus the payment block.
 - End with the sign-off "— ${brand}".

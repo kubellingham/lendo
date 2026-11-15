@@ -747,7 +747,7 @@ function CustomChecks({
         {checks.length === 0
           ? "No amounts or dates in the message."
           : unknownCount
-            ? `${unknownCount} of ${checks.length} number${checks.length === 1 ? "" : "s"} ${unknownCount === 1 ? "isn't" : "aren't"} in this loan's records — check before sending:`
+            ? `${unknownCount} of ${checks.length} number${checks.length === 1 ? "" : "s"} ${unknownCount === 1 ? "needs" : "need"} checking against this loan's records before sending:`
             : `All ${checks.length} amounts, dates and references match this loan's records.`}
       </p>
       {checks.length ? (
@@ -805,7 +805,7 @@ function CheckRow({ c }: { c: ReturnType<typeof checkMessage>[number] }) {
         <span className="font-mono font-medium">{c.text}</span>
         {" — "}
         {c.status === "unknown"
-          ? "not in Lendo's records for this loan"
+          ? (c.label ?? "not in Lendo's records for this loan")
           : c.status === "note"
             ? (c.label ?? "from your note, but not in this loan's records")
             : c.label}

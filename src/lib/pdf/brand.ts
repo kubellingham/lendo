@@ -7,7 +7,7 @@ import type { Branding } from "@/lib/settings";
 export const DEFAULT_BRANDING: Branding = {
   name: "Lendo",
   tagline: "Borrow with confidence. Repay with ease.",
-  phone: "+255 786 776 677",
+  phone: "+255 768 776 677",
   email: "ikube77@gmail.com",
   town: "Dodoma, Tanzania",
   logo: "",
@@ -62,7 +62,7 @@ export function nameLine(b: Branding): string {
   return [b.name, b.town].filter(Boolean).join("  ·  ");
 }
 
-/** "+255 786 776 677 · ikube77@gmail.com" */
+/** "+255 768 776 677 · ikube77@gmail.com" */
 export function contactLine(b: Branding): string {
   return [b.phone, b.email].filter(Boolean).join("  ·  ");
 }

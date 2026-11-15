@@ -138,3 +138,29 @@ describe("record-payment flow", () => {
     expect(r.loanStatus).toBe("SETTLED");
   });
 });
+
+describe("final round: interest plus part of the balance, paid early (Glory, 13 Nov)", () => {
+  it("is not a default — the rest is owed by the final due date", () => {
+    // 100,000 loan at 15% a round; the final round's interest is 15,000 on the
+    // opening balance. Rolling = paying only that interest → default (rule above).
+    // Paying interest + most of the balance early → still ACTIVE, round 3 PENDING.
+    const installments = makeInstallments();
+    const loanDueAt = parseIsoDate("2026-09-27");
+    applyPayment(installments, [], "15000", "inst1", parseIsoDate("2026-07-29"), loanDueAt);
+    applyPayment(installments, [{ amount: "15000", installmentId: "inst1" }], "15000", "inst2", parseIsoDate("2026-08-28"), loanDueAt);
+    const r3 = applyPayment(
+      installments,
+      [
+        { amount: "15000", installmentId: "inst1" },
+        { amount: "15000", installmentId: "inst2" },
+      ],
+      "90000", // interest 15,000 + 75,000 of the balance
+      "inst3",
+      parseIsoDate("2026-09-16"),
+      loanDueAt,
+    );
+    expect(r3.loanStatus).toBe("ACTIVE");
+    expect(installments[2].status).toBe("PENDING");
+    expect(r3.settled).toBe(false);
+  });
+});

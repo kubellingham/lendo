@@ -29,8 +29,8 @@ describe("PDF branding", () => {
 
   it("formats the footer and header lines", () => {
     expect(nameLine(DEFAULT_BRANDING)).toBe("Lendo  ·  Dodoma, Tanzania");
-    expect(contactLine(DEFAULT_BRANDING)).toBe("+255 786 776 677  ·  ikube77@gmail.com");
-    expect(contactLine({ ...DEFAULT_BRANDING, email: "" })).toBe("+255 786 776 677");
+    expect(contactLine(DEFAULT_BRANDING)).toBe("+255 768 776 677  ·  ikube77@gmail.com");
+    expect(contactLine({ ...DEFAULT_BRANDING, email: "" })).toBe("+255 768 776 677");
   });
 
   it("wraps a long tagline onto two lines", async () => {
